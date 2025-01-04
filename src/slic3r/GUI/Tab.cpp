@@ -3336,12 +3336,12 @@ void TabFilament::build()
         optgroup->append_line(line);
 
         optgroup = page->new_optgroup(L("Bed temperature"), L"param_bed_temp");
-        line = {L("Bambu Cool Plate SuperTack"), L("Bed temperature when cool plate is installed. Value 0 means the filament does not support to print on the Bambu Cool Plate SuperTack")};
+        line = {L("Cool Plate (SuperTack)"), L("Bed temperature when cool plate is installed. Value 0 means the filament does not support to print on the Cool Plate SuperTack")};
         line.append_option(optgroup->get_option("supertack_plate_temp_initial_layer"));
         line.append_option(optgroup->get_option("supertack_plate_temp"));
         optgroup->append_line(line);
 
-        line = { L("Cool Plate / PLA Plate"), L("Bed temperature when cool plate is installed. Value 0 means the filament does not support to print on the Cool Plate") };
+        line = { L("Cool Plate"), L("Bed temperature when cool plate is installed. Value 0 means the filament does not support to print on the Cool Plate") };
         line.append_option(optgroup->get_option("cool_plate_temp_initial_layer"));
         line.append_option(optgroup->get_option("cool_plate_temp"));
         optgroup->append_line(line);
@@ -3438,6 +3438,7 @@ void TabFilament::build()
         optgroup->append_single_option_line("enable_overhang_bridge_fan", "auto-cooling");
         optgroup->append_single_option_line("overhang_fan_threshold", "auto-cooling");
         optgroup->append_single_option_line("overhang_fan_speed", "auto-cooling");
+        optgroup->append_single_option_line("internal_bridge_fan_speed"); // ORCA: Add support for separate internal bridge fan speed control
         optgroup->append_single_option_line("support_material_interface_fan_speed");
 
         optgroup = page->new_optgroup(L("Auxiliary part cooling fan"), L"param_cooling_aux_fan");
@@ -3599,7 +3600,7 @@ void TabFilament::toggle_options()
     auto cfg = m_preset_bundle->printers.get_edited_preset().config;
     if (m_active_page->title() == L("Cooling")) {
       bool has_enable_overhang_bridge_fan = m_config->opt_bool("enable_overhang_bridge_fan", 0);
-      for (auto el : {"overhang_fan_speed", "overhang_fan_threshold"})
+      for (auto el : {"overhang_fan_speed", "overhang_fan_threshold", "internal_bridge_fan_speed"}) // ORCA: Add support for separate internal bridge fan speed control
             toggle_option(el, has_enable_overhang_bridge_fan);
 
       toggle_option("additional_cooling_fan_speed", cfg.opt_bool("auxiliary_fan"));
@@ -3612,7 +3613,9 @@ void TabFilament::toggle_options()
     {
         bool pa = m_config->opt_bool("enable_pressure_advance", 0);
         toggle_option("pressure_advance", pa);
+        // Orca: Enable the plates that should  be visible when multi bed support is enabled or a BBL printer is selected
         auto support_multi_bed_types = is_BBL_printer || cfg.opt_bool("support_multi_bed_types");
+        toggle_line("supertack_plate_temp_initial_layer", support_multi_bed_types );
         toggle_line("cool_plate_temp_initial_layer", support_multi_bed_types );
         toggle_line("textured_cool_plate_temp_initial_layer", support_multi_bed_types);
         toggle_line("eng_plate_temp_initial_layer", support_multi_bed_types);
@@ -3634,9 +3637,6 @@ void TabFilament::toggle_options()
 
         bool support_chamber_temp_control = this->m_preset_bundle->printers.get_edited_preset().config.opt_bool("support_chamber_temp_control");
         toggle_line("chamber_temperatures", support_chamber_temp_control);
-
-        for (auto el : {"supertack_plate_temp", "supertack_plate_temp_initial_layer", "cool_plate_temp", "cool_plate_temp_initial_layer", "eng_plate_temp", "eng_plate_temp_initial_layer", "textured_plate_temp", "textured_plate_temp_initial_layer"})
-            toggle_line(el, is_BBL_printer);
     }
     if (m_active_page->title() == L("Setting Overrides"))
         update_filament_overrides_page(&cfg);
