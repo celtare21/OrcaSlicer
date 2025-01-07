@@ -1,4 +1,4 @@
-#include "PrintConfig.hpp"
+\#include "PrintConfig.hpp"
 #include "ClipperUtils.hpp"
 #include "Config.hpp"
 #include "I18N.hpp"
@@ -3369,6 +3369,7 @@ void PrintConfigDef::init_fff_params()
     				 "Allowed values: 0.5-5");
     def->min = 0.5;
     def->max = 5;
+    def->sidetext = L("mm");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(3.0));
     
