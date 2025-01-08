@@ -3862,10 +3862,16 @@ LayerResult GCode::process_layer(
         return next_extruder;
     };
     
-    if (m_config.enable_overhang_speed && !m_config.overhang_speed_classic) {
-        for (const auto &layer_to_print : layers) {
-            m_extrusion_quality_estimator.prepare_for_new_layer(layer_to_print.original_object,
-                                                                layer_to_print.object_layer);
+    for (const auto &layer_to_print : layers) {
+        if (layer_to_print.object_layer) {
+            const auto& regions = layer_to_print.object_layer->regions();
+            const bool  enable_overhang_speed = std::any_of(regions.begin(), regions.end(), [](const LayerRegion* r) {
+                return r->has_extrusions() && r->region().config().enable_overhang_speed && !r->region().config().overhang_speed_classic;
+            });
+            if (enable_overhang_speed) {
+                m_extrusion_quality_estimator.prepare_for_new_layer(layer_to_print.original_object,
+                                                                    layer_to_print.object_layer);
+            }
         }
     }
 
@@ -4254,9 +4260,6 @@ LayerResult GCode::process_layer(
                 temp_start_str = start_str + start_str_a;
                 gcode += start_str_a;
 
-                if (m_config.enable_overhang_speed && !m_config.overhang_speed_classic)
-                    m_extrusion_quality_estimator.set_current_object(&instance_to_print.print_object);
-
                 // When starting a new object, use the external motion planner for the first travel move.
                 const Point &offset = instance_to_print.print_object.instances()[instance_to_print.instance_id].shift;
                 std::pair<const PrintObject*, Point> this_object_copy(&instance_to_print.print_object, offset);
@@ -4376,10 +4379,10 @@ LayerResult GCode::process_layer(
 
                             has_insert_timelapse_gcode = true;
                         }
-                        gcode += this->extrude_infill(print, by_region_specific, false);
-                        gcode += this->extrude_perimeters(print, by_region_specific);
+                        gcode += this->extrude_infill(instance_to_print.print_object, by_region_specific, false);
+                        gcode += this->extrude_perimeters(instance_to_print.print_object, by_region_specific);
                     } else {
-                        gcode += this->extrude_perimeters(print, by_region_specific);
+                        gcode += this->extrude_perimeters(instance_to_print.print_object, by_region_specific);
 
                         // insert timelapse_gcode when no wipe tower, no infill and is first layer
                         if (!has_wipe_tower && need_insert_timelapse_gcode_for_traditional && !has_insert_timelapse_gcode && has_infill(by_region_specific)) {
@@ -4415,10 +4418,10 @@ LayerResult GCode::process_layer(
 
                             has_insert_timelapse_gcode = true;
                         }
-                        gcode += this->extrude_infill(print,by_region_specific, false);
+                        gcode += this->extrude_infill(instance_to_print.print_object, by_region_specific, false);
                     }
                     // ironing
-                    gcode += this->extrude_infill(print,by_region_specific, true);
+                    gcode += this->extrude_infill(instance_to_print.print_object, by_region_specific, true);
                 }
 
                 if (this->config().gcode_label_objects) {
@@ -5032,12 +5035,14 @@ std::string GCode::extrude_path(ExtrusionPath path, std::string description, dou
 }
 
 // Extrude perimeters: Decide where to put seams (hide or align seams).
-std::string GCode::extrude_perimeters(const Print &print, const std::vector<ObjectByExtruder::Island::Region> &by_region)
+std::string GCode::extrude_perimeters(const PrintObject& print_object, const std::vector<ObjectByExtruder::Island::Region>& by_region)
 {
     std::string gcode;
     for (const ObjectByExtruder::Island::Region &region : by_region)
         if (! region.perimeters.empty()) {
-            m_config.apply(print.get_print_region(&region - &by_region.front()).config());
+            m_config.apply(print_object.print()->get_print_region(&region - &by_region.front()).config());
+            if (m_config.enable_overhang_speed && !m_config.overhang_speed_classic)
+                m_extrusion_quality_estimator.set_current_object(&print_object);
 
             for (const ExtrusionEntity* ee : region.perimeters)
                 gcode += this->extrude_entity(*ee, "perimeter", -1., region.perimeters);
@@ -5046,7 +5051,7 @@ std::string GCode::extrude_perimeters(const Print &print, const std::vector<Obje
 }
 
 // Chain the paths hierarchically by a greedy algorithm to minimize a travel distance.
-std::string GCode::extrude_infill(const Print &print, const std::vector<ObjectByExtruder::Island::Region> &by_region, bool ironing)
+std::string GCode::extrude_infill(const PrintObject &print_object, const std::vector<ObjectByExtruder::Island::Region> &by_region, bool ironing)
 {
     std::string 		 gcode;
     ExtrusionEntitiesPtr extrusions;
@@ -5059,7 +5064,10 @@ std::string GCode::extrude_infill(const Print &print, const std::vector<ObjectBy
                 if ((ee->role() == erIroning) == ironing)
                     extrusions.emplace_back(ee);
             if (! extrusions.empty()) {
-                m_config.apply(print.get_print_region(&region - &by_region.front()).config());
+                m_config.apply(print_object.print()->get_print_region(&region - &by_region.front()).config());
+                if (m_config.enable_overhang_speed && !m_config.overhang_speed_classic)
+                    m_extrusion_quality_estimator.set_current_object(&print_object);
+
                 chain_and_reorder_extrusion_entities(extrusions, &m_last_pos);
                 for (const ExtrusionEntity *fill : extrusions) {
                     auto *eec = dynamic_cast<const ExtrusionEntityCollection*>(fill);
