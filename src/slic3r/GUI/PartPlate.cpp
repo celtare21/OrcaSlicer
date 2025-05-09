@@ -577,7 +577,7 @@ void PartPlate::calc_vertex_for_plate_name_edit_icon(GLTexture *texture, int ind
     float offset_y = PARTPLATE_TEXT_OFFSET_Y * factor;
 
     if (texture && texture->get_width() > 0 && texture->get_height())
-        width = int(factor * (texture->get_original_width() * 10) / texture->get_height());
+        width = int(factor * (texture->get_original_width() * 16) / texture->get_height());
 
     p += Vec2d(width + offset_x, offset_y + height);
 
@@ -1871,7 +1871,7 @@ void PartPlate::generate_plate_name_texture()
 	auto text = m_name.empty()? _L("Untitled") : from_u8(m_name);
 	wxCoord w, h;
 
-	auto* font = &Label::Head_96;  // ORCA use downscaling with big font size instead using upscaling with small font size to improve quality
+	auto* font = &Label::Head_32;
 
 	wxColour foreground(0xf2, 0x75, 0x4e, 0xff);
     if (!m_name_texture.generate_from_text_string(text.ToUTF8().data(), *font, *wxBLACK, foreground))
@@ -1881,8 +1881,8 @@ void PartPlate::generate_plate_name_texture()
 	ExPolygon poly;
 	float offset_x = 1 * factor;
     float offset_y = PARTPLATE_TEXT_OFFSET_Y * factor;
-    w = int(factor * (m_name_texture.get_width() * 10) / m_name_texture.get_height());
-    h = int(factor * 10);
+    w = int(factor * (m_name_texture.get_width() * 16) / m_name_texture.get_height());
+    h = int(factor * 16);
     Vec2d p = bed_ext[3] + Vec2d(0, 1 + h * m_name_texture.m_original_height / m_name_texture.get_height());
 	poly.contour.append({ scale_(p(0) + offset_x)    , scale_(p(1) - h + offset_y) });
 	poly.contour.append({ scale_(p(0) + w - offset_x), scale_(p(1) - h + offset_y) });
@@ -3367,7 +3367,7 @@ void PartPlateList::generate_icon_textures()
 	}
 
 	std::string text_str = "01";
-	wxFont* font = &Label::Head_96; // ORCA use downscaling with big font size instead using upscaling with small font size to improve quality
+	wxFont* font = find_font(text_str,32);
 
 	for (int i = 0; i < MAX_PLATE_COUNT; i++) {
 		if (m_idx_textures[i].get_id() == 0) {
