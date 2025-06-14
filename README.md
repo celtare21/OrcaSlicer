@@ -51,11 +51,13 @@ Optimize your prints with ultra-fast slicing, intelligent support generation, an
 - Additional features can be found in the [change notes](https://github.com/SoftFever/OrcaSlicer/releases/)
 
 # Wiki
+
 The wiki below aims to provide a detailed explanation of the slicer settings, including how to maximize their use and how to calibrate and set up your printer.
 
 Please note that the wiki is a work in progress. We appreciate your patience as we continue to develop and improve it!
 
 **[Access the wiki here](https://github.com/SoftFever/OrcaSlicer/wiki)**
+**[Contribute to the wiki](https://github.com/SoftFever/OrcaSlicer/wiki/How-to-wiki)**
 
 # Download
 
@@ -108,9 +110,9 @@ winget install --id=SoftFever.OrcaSlicer --e
       ```
     - Option 3:
         - Step 1: open the app, a warning window will pop up  
-            ![image](./SoftFever_doc/mac_cant_open.png)
+            ![mac_cant_open](./SoftFever_doc/mac_cant_open.png)
         - Step 2: in `System Settings` -> `Privacy & Security`, click `Open Anyway`:
-            ![image](./SoftFever_doc/mac_security_setting.png)
+            ![mac_security_setting](./SoftFever_doc/mac_security_setting.png)
     </details>
 
 ## Linux (Ubuntu):
@@ -183,4 +185,3 @@ The GNU Affero General Public License, version 3 ensures that if you use any par
 Orca Slicer includes a pressure advance calibration pattern test adapted from Andrew Ellis' generator, which is licensed under GNU General Public License, version 3. Ellis' generator is itself adapted from a generator developed by Sineos for Marlin, which is licensed under GNU General Public License, version 3.
 
 The Bambu networking plugin is based on non-free libraries from BambuLab. It is optional to the Orca Slicer and provides extended functionalities for Bambulab printer users.
-

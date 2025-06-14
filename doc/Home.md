@@ -2,9 +2,18 @@
 
 Orca slicer is a powerful open source slicer for FFF (FDM) 3D Printers. This wiki page aims to provide an detailed explanation of the slicer settings, how to get the most out of them as well as how to calibrate and setup your printer.
 
-The Wiki is work in progress so bear with us while we get it up and running!
+- [Print Settings, Tips and Tricks](#print-settings-tips-and-tricks)
+  - [Quality Settings](#quality-settings)
+  - [Speed Settings](#speed-settings)
+  - [Multi material](#multi-material)
+  - [Printer Settings](#printer-settings)
+- [Printer Calibration](#printer-calibration)
+- [Developer Section](#developer-section)
 
-## Print Settings, Tips and Tricks (Work In Progress)
+> [!NOTE]
+> The Wiki is **Work In Progress** so bear with us while we get it up and running!
+
+## Print Settings, Tips and Tricks
 
 The below sections provide a detailed settings explanation as well as tips and tricks in setting these for optimal print results.
 
@@ -14,6 +23,7 @@ The below sections provide a detailed settings explanation as well as tips and t
 - [Line Width Settings](quality_settings_line_width)
 - [Seam Settings](quality_settings_seam)
 - [Precise wall](Precise-wall)
+- [Precise Z height](precise-z-height)
 - [STL Transformation](stl-transformation)
 
 ### Speed Settings
@@ -24,7 +34,7 @@ The below sections provide a detailed settings explanation as well as tips and t
 
 - [Single Extruder Multimaterial](semm)
 
-### Printer Settings:
+### Printer Settings
 
 - [Air filtration/Exhaust fan handling](air-filtration)
 - [Auxiliary fan handling](Auxiliary-fan)
@@ -32,25 +42,27 @@ The below sections provide a detailed settings explanation as well as tips and t
 - [Adaptive Bed Mesh](adaptive-bed-mesh)
 - [Using different bed types in Orca](bed-types)
 - [Pellet Printers (pellet flow coefficient)](pellet-flow-coefficient)
+- [Fill Patterns](fill-patterns)
 
 ## Printer Calibration
 
-The [Calibration Guide](./print_settings/calibration/Calibration.md) takes you through the key calibration tests in Orca - flow rate, pressure advance, print temperature, retraction, tolerances, etc.
+The [Calibration Guide](Calibration) outlines Orca’s key calibration tests and their suggested order of execution.
 
-- [Flow Rate](print_settings/calibration/flow-rate-calib.md)
-- [Pressure Advance](print_settings/calibration/pressure-advance-calib.md)
-- [Temperature](print_settings/calibration/temp-calib.md)
-- [Retraction](print_settings/calibration/retraction-calib.md)
-- [Tolerance](print_settings/calibration/tolerance-calib.md)
+- [Temperature](temp-calib)
+- [Flow Rate](flow-rate-calib)
+- [Pressure Advance](pressure-advance-calib)
+  - [Adaptive Pressure Advance Guide](adaptive-pressure-advance-calib)
+- [Retraction](retraction-calib)
+- [Tolerance](tolerance-calib)
 - Advanced:
-  - [Volumetric Speed](print_settings/calibration/volumetric-speed-calib.md)
-  - [Adaptive Pressure Advance Guide](print_settings/calibration/adaptive-pressure-advance-calib.md)
-  - [Input Shaping](print_settings/calibration/input-shaping-calib.md)
-  - [Cornering (Jerk & Junction Deviation)](print_settings/calibration/cornering-calib.md)
+  - [Volumetric Speed](volumetric-speed-calib)
+  - [Cornering (Jerk & Junction Deviation)](cornering-calib)
+  - [Input Shaping](input-shaping-calib)
 
 ## Developer Section
 
-- [How to build Orca Slicer](./How-to-build)
+- [How to build Orca Slicer](How-to-build)
 - [Localization and translation guide](Localization_guide)
-- [Developer Reference](https://github.com/SoftFever/OrcaSlicer/blob/main/doc/developer-reference/Home.md)
-- [How to create profiles](./How-to-create-profiles)
+- [Developer Reference](Developers-Home)
+- [How to create profiles](How-to-create-profiles)
+- [How to contribute to the wiki](How-to-wiki)
