@@ -2339,10 +2339,14 @@ void TabPrint::build()
         optgroup->append_single_option_line("prime_tower_brim_width");
         optgroup->append_single_option_line("wipe_tower_rotation_angle");
         optgroup->append_single_option_line("wipe_tower_bridging");
-        optgroup->append_single_option_line("wipe_tower_cone_angle");
         optgroup->append_single_option_line("wipe_tower_extra_spacing");
         optgroup->append_single_option_line("wipe_tower_extra_flow");
         optgroup->append_single_option_line("wipe_tower_max_purge_speed");
+        optgroup->append_single_option_line("wipe_tower_wall_type");
+        optgroup->append_single_option_line("wipe_tower_cone_angle");
+        optgroup->append_single_option_line("wipe_tower_extra_rib_length");
+        optgroup->append_single_option_line("wipe_tower_rib_width");
+        optgroup->append_single_option_line("wipe_tower_fillet_wall");
         optgroup->append_single_option_line("wipe_tower_no_sparse_layers");
         optgroup->append_single_option_line("single_extruder_multi_material_priming");
 
@@ -4436,7 +4440,6 @@ if (is_marlin_flavor)
                 optgroup->append_single_option_line("deretraction_speed", "", extruder_idx);
                 optgroup->append_single_option_line("retraction_minimum_travel", "", extruder_idx);
                 optgroup->append_single_option_line("retract_when_changing_layer", "", extruder_idx);
-                optgroup->append_single_option_line("retract_on_top_layer", "", extruder_idx);
                 optgroup->append_single_option_line("wipe", "", extruder_idx);
                 optgroup->append_single_option_line("wipe_distance", "", extruder_idx);
                 optgroup->append_single_option_line("retract_before_wipe", "", extruder_idx);
@@ -4656,7 +4659,7 @@ void TabPrinter::toggle_options()
         // user can customize other retraction options if retraction is enabled
         //BBS
         bool retraction = have_retract_length || use_firmware_retraction;
-        std::vector<std::string> vec = {"z_hop", "retract_when_changing_layer", "retract_on_top_layer"};
+        std::vector<std::string> vec = {"z_hop", "retract_when_changing_layer"};
         for (auto el : vec)
             toggle_option(el, retraction, i);
 
