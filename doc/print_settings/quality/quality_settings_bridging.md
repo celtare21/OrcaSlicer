@@ -32,11 +32,11 @@ Theoretically, 100% means a solid bridge, but due to the tendency of bridge extr
 
 ## Thick bridges
 
-![thick-bridges](https://github.com/OrcaSlicer/OrcaSlicer/blob/main/doc/images/bridging/thick-bridges.png?raw=true)
-
-When enabled, thick bridges increase the reliability and strength of bridges, allowing you to span longer distances. However, this may result in a rougher surface finish.  
-Disabling this option can improve the visual quality of bridges, but is recommended only for shorter spans or when using large nozzle sizes.  
-It's recommended to enable this option for internal bridges, as it helps improve the reliability of internal bridges over sparse infill.
+When enabled, bridge extrusion uses a line height equal to the nozzle diameter.  
+![thick-bridges](https://github.com/OrcaSlicer/OrcaSlicer/blob/main/doc/images/bridging/thick-bridges.png?raw=true)  
+This improves the strength and reliability of bridges, allowing you to span longer distances; however, it may produce a rougher surface finish.  
+Disabling this option can improve bridge appearance, but it is recommended only for shorter spans or when using large nozzles.  
+We recommend enabling this option for internal bridges, as it increases their reliability when printed over sparse infill.
 
 ## Extra bridge layers
 
