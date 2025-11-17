@@ -11,12 +11,15 @@
 
 ## Flow ratio
 
-- Values above 1.0 add material:
-  - Regular bridges: Keep spacing and thicken the filament for stronger line contact when paired with a <= 100% Bridge line width.
-  - Thick bridges: Increase width, height, and spacing.
-- Values below 1.0 remove material:
-  - Regular bridges: eventually tighten spacing as the thread thins—potentially adding passes or altering paths—whereas.
-  - Thick bridges: shrink both diameter and spacing, cutting sagging at the cost of lateral bonding.
+This value governs the thickness of the bridge layer.
+
+For external bridges, when material tends to sag, reducing the flow ratio can help improve appearance.  
+For internal bridges, increasing the flow ratio can enhance strength and upper layer quality.
+
+- Values above 1.0: Increase the amount of material while maintaining line spacing. This can improve line contact and strength.
+- Values below 1.0: Reduce the amount of material while adjusting line spacing to maintain contact. This can improve sagging.
+
+The actual bridge flow used is calculated by multiplying this value with the filament flow ratio, and if set, the object's flow ratio.
 
 ## Bridge density
 
