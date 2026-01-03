@@ -306,7 +306,7 @@ public:
     
         layer_start_bp_radius = (bp_radius - branch_radius) / bp_radius_increase_per_layer;
     
-        if (TreeSupportSettings::soluble) {
+        if (TreeSupportSettings::zero_top_z_gap) {
             // safeOffsetInc can only work in steps of the size xy_min_distance in the worst case => xy_min_distance has to be a bit larger than 0 in this worst case and should be large enough for performance to not suffer extremely
             // When for all meshes the z bottom and top distance is more than one layer though the worst case is xy_min_distance + min_feature_size
             // This is not the best solution, but the only one to ensure areas can not lag though walls at high maximum_move_distance.
@@ -355,7 +355,7 @@ public:
 
     // some static variables dependent on other meshes that are not currently processed.
     // Has to be static because TreeSupportConfig will be used in TreeModelVolumes as this reduces redundancy.
-    inline static bool soluble = false;
+    inline static bool zero_top_z_gap = false;
     /*!
      * \brief Width of a single line of support.
      */

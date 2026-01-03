@@ -132,7 +132,7 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
         const PrintObjectConfig &object_config = print_object.config();
         if (object_config.support_top_z_distance < EPSILON)
             // || min_feature_size < scaled<coord_t>(0.1) that is the minimum line width
-            TreeSupportSettings::soluble = true;
+            TreeSupportSettings::zero_top_z_gap = true;
     }
 
     size_t largest_printed_mesh_idx = 0;
