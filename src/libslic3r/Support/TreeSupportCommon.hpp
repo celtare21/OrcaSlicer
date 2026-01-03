@@ -718,9 +718,15 @@ public:
     {
         assert(support_parameters.has_top_contacts);
         assert(dtt_roof <= support_parameters.num_top_interface_layers);
+        // ORCA: Reserve one top interface layer but only when top base-interface layers exist.
+        // This prevents all interface layers from being classified as base-interface layers
+        // and preserves correct top contact and interface behavior.
+        size_t interface_threshold = support_parameters.num_top_interface_layers_only();
+        if (interface_threshold > 0 && support_parameters.num_top_base_interface_layers > 0)
+            --interface_threshold;
         SupportGeneratorLayersPtr &layers =
             dtt_roof == 0 ? this->top_contacts :
-            dtt_roof <= support_parameters.num_top_interface_layers_only() ? this->top_interfaces : this->top_base_interfaces;
+            dtt_roof <= interface_threshold ? this->top_interfaces : this->top_base_interfaces;
         SupportGeneratorLayer*& l = layers[insert_layer_idx];
         if (l == nullptr)
             l = &layer_allocate_unguarded(layer_storage, dtt_roof == 0 ? SupporLayerType::TopContact : SupporLayerType::TopInterface, 
