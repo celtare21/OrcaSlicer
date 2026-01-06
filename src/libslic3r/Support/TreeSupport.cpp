@@ -73,6 +73,33 @@ inline Point normal(Point pt, double scale)
 
     return pt * (scale / length);
 }
+// ORCA:
+// Collect all polygons of a given SurfaceType from all regions of a layer.
+// Used when surface semantics (e.g. true top contact) must be
+// evaluated independently of region or modifier boundaries.
+static Polygons collect_region_slices_by_type(const Layer &layer, SurfaceType surface_type)
+{
+    size_t n_polygons_new = 0;
+
+    for (const LayerRegion *region : layer.regions()) {
+        for (const Surface &surface : region->slices.surfaces) {
+            if (surface.surface_type == surface_type)
+                n_polygons_new += surface.expolygon.holes.size() + 1;
+        }
+    }
+
+    Polygons out;
+    out.reserve(n_polygons_new);
+
+    for (const LayerRegion *region : layer.regions()) {
+        for (const Surface &surface : region->slices.surfaces) {
+            if (surface.surface_type == surface_type)
+                polygons_append(out, surface.expolygon);
+        }
+    }
+
+    return out;
+}
 
 enum TreeSupportStage {
     STAGE_DETECT_OVERHANGS,
@@ -1505,6 +1532,7 @@ void TreeSupport::generate_toolpaths()
                         // floor_areas
                         fill_params.density = bottom_interface_density;
                         filler_interface->spacing = interface_flow.spacing();
+
                         fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys,
                             filler_interface.get(), fill_params, erSupportMaterialInterface, interface_flow);
                     } else if (area_group.type == SupportLayer::RoofType) {
@@ -1914,7 +1942,7 @@ void TreeSupport::draw_circles()
     const PrintObjectConfig &config = m_object->config();
     const Print* print = m_object->print();
     bool has_brim = print->has_brim();
-    int bottom_gap_layers = round(m_slicing_params.gap_object_support / m_slicing_params.layer_height);
+    const coordf_t bottom_gap_height = m_slicing_params.gap_object_support;
     const coordf_t branch_radius = config.tree_support_branch_diameter.value / 2;
     const coordf_t branch_radius_scaled = scale_(branch_radius);
     bool on_buildplate_only = m_object_config->support_on_build_plate_only.value;
@@ -2131,37 +2159,69 @@ void TreeSupport::draw_circles()
                     for (auto &area : base_areas) { area.simplify(scale_(line_width / 2), &base_areas_simplified); }
                     base_areas = std::move(base_areas_simplified);
                 }
-                //Subtract support floors. We can only compute floor_areas here instead of with roof_areas,
-                // or we'll get much wider floor than necessary.
-                if (bottom_interface_layers + bottom_gap_layers > 0)
+                // ORCA:
+                // Bottom interface / bottom gap must be anchored to the *true* support-to-model contact surface.
+                // Do NOT window the contact search by gap or interface height.
+                // First find the real contact below, then enforce:
+                //   - an empty gap below (contact_z + gap)
+                //   - exactly N interface layers above that
+                if (!base_areas.empty() && !m_object_config->support_on_build_plate_only.value &&
+                    (bottom_gap_height > EPSILON || bottom_interface_layers > 0))
                 {
-                    if (layer_nr >= bottom_interface_layers + bottom_gap_layers)
-                    {
-                        // find the lowest interface layer
-                        // TODO the gap may not be exact when "independent support layer height" is enabled
-                        size_t layer_nr_next = layer_nr - bottom_interface_layers;
-                        size_t obj_layer_nr_next = m_ts_data->layer_heights[layer_nr_next].obj_layer_nr;
-                        for (size_t i = 0; i <= bottom_gap_layers && i <= obj_layer_nr_next; i++)
-                        {
-                            const Layer *below_layer      = m_object->get_layer(obj_layer_nr_next - i);
-                            ExPolygons bottom_interface = intersection_ex(base_areas, below_layer->lslices);
-                            floor_areas.insert(floor_areas.end(), bottom_interface.begin(), bottom_interface.end());
+                    const coordf_t interface_height =
+                        bottom_interface_layers > 0 ? coordf_t(bottom_interface_layers) * m_slicing_params.layer_height : 0.0;
+
+                    bool found_contact = false;
+                    coordf_t contact_z = 0.0;
+                    Polygons contact_surfaces;
+
+                    // Search downward for the first object layer whose TOP surfaces actually intersect current base_areas.
+                    // (No gap/interface windowing here — we need the true contact reference first.)
+                    for (size_t idx = obj_layer_nr + 1; idx-- > 0;) {
+                        const Layer* below_layer = m_object->get_layer(idx);
+                        Polygons top_surfaces = collect_region_slices_by_type(*below_layer, stTop);
+                        if (top_surfaces.empty())
+                            continue;
+
+                        if (!intersection_ex(base_areas, top_surfaces).empty()) {
+                            found_contact     = true;
+                            contact_z         = below_layer->print_z;
+                            contact_surfaces  = std::move(top_surfaces);
+                            break;
                         }
                     }
-                    if (floor_areas.empty() == false) {
-                        //floor_areas = std::move(diff_ex(floor_areas, avoid_region_interface));
-                        //floor_areas = std::move(offset2_ex(floor_areas, contact_dist_scaled, -contact_dist_scaled));
-                        base_areas = std::move(diff_ex(base_areas, offset_ex(floor_areas, 10)));
+
+                    if (found_contact) {
+                        const coordf_t gap_top_z = contact_z + bottom_gap_height;
+                        const coordf_t layer_top_z = ts_layer->print_z;
+                        const coordf_t layer_bottom_z = ts_layer->bottom_z();
+
+                        // Entirely inside the gap → no support
+                        if (bottom_gap_height > EPSILON && layer_top_z <= gap_top_z + EPSILON)
+                        {
+                            base_areas.clear();
+                        }
+                        // Overlaps interface band
+                        else if (bottom_interface_layers > 0 && layer_bottom_z < gap_top_z + interface_height - EPSILON)
+                        {
+                            // Assign interface layer index for bottom interface,
+                            // based on distance above the support-to-model gap.
+                            const coordf_t rel_z = layer_bottom_z - gap_top_z;
+                            interface_id = std::clamp(int(std::floor(rel_z / m_slicing_params.layer_height)), 0, int(bottom_interface_layers) - 1);
+
+                            ExPolygons bottom_interface = intersection_ex(base_areas, contact_surfaces);
+                            if (!bottom_interface.empty())
+                                append(floor_areas, bottom_interface);
+
+                            if (!floor_areas.empty())
+                                // Small epsilon offset (scaled units) to avoid coincident edges in boolean diff
+                                base_areas = std::move(diff_ex(base_areas, offset_ex(floor_areas, 10)));
+                        }
                     }
                 }
-                if (bottom_gap_layers > 0 && m_ts_data->layer_heights[layer_nr].obj_layer_nr > bottom_gap_layers) {
-                    const Layer* below_layer = m_object->get_layer(m_ts_data->layer_heights[layer_nr].obj_layer_nr - bottom_gap_layers);
-                    ExPolygons bottom_gap_area = intersection_ex(floor_areas, below_layer->lslices);
-                    if (!bottom_gap_area.empty()) {
-                        floor_areas = std::move(diff_ex(floor_areas, bottom_gap_area));
-                    }
-                }
+
                 auto &area_groups = ts_layer->area_groups;
+
                 for (auto& expoly : ts_layer->base_areas) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
                     area_groups.emplace_back(&expoly, SupportLayer::BaseType, max_layers_above_base);
@@ -2176,6 +2236,7 @@ void TreeSupport::draw_circles()
                 for (auto &expoly : ts_layer->floor_areas) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
                     area_groups.emplace_back(&expoly, SupportLayer::FloorType, 10000);
+                    area_groups.back().interface_id = interface_id;
                 }
                 for (auto &expoly : ts_layer->roof_1st_layer) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
@@ -2199,8 +2260,10 @@ void TreeSupport::draw_circles()
                 //Must update bounding box which is used in avoid crossing perimeter
                 ts_layer->lslices_bboxes.clear();
                 ts_layer->lslices_bboxes.reserve(ts_layer->lslices.size());
+
                 for (const ExPolygon& expoly : ts_layer->lslices)
                     ts_layer->lslices_bboxes.emplace_back(get_extents(expoly));
+
                 ts_layer->backup_untyped_slices();
 
             }
@@ -3081,7 +3144,12 @@ std::vector<LayerHeightData> TreeSupport::plan_layer_heights()
     // add support layers according to layer_heights
     int support_layer_nr = m_raft_layers;
     for (size_t i = 0; i < layer_heights.size(); i++, support_layer_nr++) {
-        SupportLayer *ts_layer = m_object->add_tree_support_layer(support_layer_nr, layer_heights[i].print_z, layer_heights[i].height, layer_heights[i].print_z);
+        // SupportLayer *ts_layer = m_object->add_tree_support_layer(support_layer_nr, layer_heights[i].print_z, layer_heights[i].height, layer_heights[i].print_z);
+
+        // ORCA: add_tree_support_layer() argument order is (id, height, print_z, slice_z).
+        // Passing print_z as height breaks support layer geometry.
+        SupportLayer *ts_layer = m_object->add_tree_support_layer(support_layer_nr, layer_heights[i].height, layer_heights[i].print_z, layer_heights[i].print_z);
+
         if (ts_layer->id() > m_raft_layers) {
             SupportLayer *lower_layer = m_object->get_support_layer(ts_layer->id() - 1);
             if (lower_layer) {
