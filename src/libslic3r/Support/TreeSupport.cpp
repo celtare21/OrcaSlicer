@@ -1506,8 +1506,10 @@ void TreeSupport::generate_toolpaths()
                         // interface
                         if (layer_id == 0) {
                             Flow flow = m_raft_layers == 0 ? m_object->print()->brim_flow() : support_flow;
+                            ExtrusionRole brim_role = (area_group.type == SupportLayer::RoofType && !area_group.interface_as_base) ?
+                                erSupportMaterialInterface : erSupportMaterial;
                             make_perimeter_and_inner_brim(ts_layer->support_fills.entities, poly, wall_count, flow,
-                                                          area_group.type == SupportLayer::RoofType ? erSupportMaterialInterface : erSupportMaterial);
+                                                          brim_role);
                             polys = std::move(offset_ex(poly, -flow.scaled_spacing()));
                         } else if (area_group.type == SupportLayer::Roof1stLayer) {
                             polys = std::move(offset_ex(poly, 0.5*support_flow.scaled_width()));
@@ -1536,6 +1538,7 @@ void TreeSupport::generate_toolpaths()
                             delete temp_support_fills;
                     } else if (area_group.type == SupportLayer::FloorType) {
                         // floor_areas
+                        bool interface_as_base = area_group.interface_as_base;
                         fill_params.density = bottom_interface_density;
                         filler_interface->spacing = interface_flow.spacing();
 
@@ -1551,10 +1554,14 @@ void TreeSupport::generate_toolpaths()
                             fill_params.dont_sort = true;
                         }
 
+
+                        Flow interface_base_flow = interface_as_base ? support_flow : interface_flow;
+                        ExtrusionRole interface_role = interface_as_base ? erSupportMaterial : erSupportMaterialInterface;
                         fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys,
-                            filler_interface.get(), fill_params, erSupportMaterialInterface, interface_flow);
+                            filler_interface.get(), fill_params, interface_role, interface_base_flow);
                     } else if (area_group.type == SupportLayer::RoofType) {
                         // roof_areas
+                        bool interface_as_base = area_group.interface_as_base;
                         fill_params.density       = interface_density;
                         filler_interface->spacing = interface_flow.spacing();
 
@@ -1572,6 +1579,11 @@ void TreeSupport::generate_toolpaths()
 
                         fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys, filler_interface.get(), fill_params, erSupportMaterialInterface,
                                                        interface_flow);
+
+                        Flow interface_base_flow = interface_as_base ? support_flow : interface_flow;
+                        ExtrusionRole interface_role = interface_as_base ? erSupportMaterial : erSupportMaterialInterface;
+                        fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys, filler_interface.get(), fill_params, interface_role,
+                                                       interface_base_flow);
                     }
                     else {
                         // base_areas
@@ -2046,7 +2058,10 @@ void TreeSupport::draw_circles()
                 coordf_t         max_layers_above_base = 0;
                 coordf_t         max_layers_above_roof = 0;
                 coordf_t         max_layers_above_roof1 = 0;
-                int interface_id = 0;
+                int              bottom_interface_id = 0;
+                int              min_roof_layers_below = std::numeric_limits<int>::max();
+                bool             roof_interface_as_base = false;
+                bool             floor_interface_as_base = false;
                 bool has_circle_node = false;
                 bool need_extra_wall = false;
                 ExPolygons collision_sharp_tails;
@@ -2152,7 +2167,7 @@ void TreeSupport::draw_circles()
                     {
                         append(roof_areas, area);
                         max_layers_above_roof = std::max(max_layers_above_roof, node.dist_mm_to_top);
-                        interface_id = node.obj_layer_nr % top_interface_layers;
+                        min_roof_layers_below = std::min(min_roof_layers_below, node.support_roof_layers_below);
                     }
                     else
                     {
@@ -2182,6 +2197,10 @@ void TreeSupport::draw_circles()
                     ExPolygons base_areas_simplified;
                     for (auto &area : base_areas) { area.simplify(scale_(line_width / 2), &base_areas_simplified); }
                     base_areas = std::move(base_areas_simplified);
+                }
+                if (min_roof_layers_below != std::numeric_limits<int>::max()) {
+                    if (m_support_params.num_top_base_interface_layers > 0)
+                        roof_interface_as_base = min_roof_layers_below <= int(m_support_params.num_top_base_interface_layers);
                 }
                 // ORCA:
                 // Bottom interface / bottom gap must be anchored to the *true* support-to-model contact surface.
@@ -2228,10 +2247,18 @@ void TreeSupport::draw_circles()
                         // Overlaps interface band
                         else if (bottom_interface_layers > 0 && layer_bottom_z < gap_top_z + interface_height - EPSILON)
                         {
-                            // Assign interface layer index for bottom interface,
-                            // based on distance above the support-to-model gap.
-                            const coordf_t rel_z = layer_bottom_z - gap_top_z;
-                            interface_id = std::clamp(int(std::floor(rel_z / m_slicing_params.layer_height)), 0, int(bottom_interface_layers) - 1);
+                            // ORCA: Assign bottom interface index for base-interface split,
+                            // interlaced IDs are normalized after layer generation.
+                            size_t first_interface_layer = layer_nr;
+                            while (first_interface_layer > 0) {
+                                if (m_ts_data->layer_heights[first_interface_layer - 1].print_z <= gap_top_z + EPSILON)
+                                    break;
+                                --first_interface_layer;
+                            }
+                            bottom_interface_id = int((layer_nr - first_interface_layer) % bottom_interface_layers);
+                            if (m_support_params.num_bottom_base_interface_layers > 0) {
+                                floor_interface_as_base = bottom_interface_id >= int(m_support_params.num_bottom_interface_layers_only());
+                            }
 
                             ExPolygons bottom_interface = intersection_ex(base_areas, contact_surfaces);
                             if (!bottom_interface.empty())
@@ -2255,16 +2282,17 @@ void TreeSupport::draw_circles()
                 for (auto& expoly : ts_layer->roof_areas) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
                     area_groups.emplace_back(&expoly, SupportLayer::RoofType, max_layers_above_roof);
-                    area_groups.back().interface_id = interface_id;
+                    area_groups.back().interface_as_base = roof_interface_as_base;
                 }
                 for (auto &expoly : ts_layer->floor_areas) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
                     area_groups.emplace_back(&expoly, SupportLayer::FloorType, 10000);
-                    area_groups.back().interface_id = interface_id;
+                    area_groups.back().interface_as_base = floor_interface_as_base;
                 }
                 for (auto &expoly : ts_layer->roof_1st_layer) {
                     //if (area(expoly) < SQ(scale_(1))) continue;
                     area_groups.emplace_back(&expoly, SupportLayer::Roof1stLayer, max_layers_above_roof1);
+                    area_groups.back().interface_as_base = true;
                 }
 
                 for (auto &area_group : area_groups) {
