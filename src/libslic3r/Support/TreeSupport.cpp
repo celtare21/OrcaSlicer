@@ -1468,13 +1468,8 @@ void TreeSupport::generate_toolpaths()
         return;
 
     BoundingBox bbox_object(Point(-scale_(1.), -scale_(1.0)), Point(scale_(1.), scale_(1.)));
-
-    std::shared_ptr<Fill> filler_interface = std::shared_ptr<Fill>(Fill::new_from_type(m_support_params.contact_fill_pattern));
-    std::shared_ptr<Fill> filler_Roof1stLayer = std::shared_ptr<Fill>(Fill::new_from_type(ipRectilinear));
-    filler_interface->set_bounding_box(bbox_object);
-    filler_Roof1stLayer->set_bounding_box(bbox_object);
-    filler_interface->angle = Geometry::deg2rad(object_config.support_angle.value + 90.);
-    filler_Roof1stLayer->angle = Geometry::deg2rad(object_config.support_angle.value + 90.);
+    // ORCA: base angle used for explicit interlaced interface orientation.
+    const float base_support_angle = Geometry::deg2rad(object_config.support_angle.value);
 
     // generate tree support tool paths
     tbb::parallel_for(
@@ -1493,11 +1488,20 @@ void TreeSupport::generate_toolpaths()
                 coordf_t support_spacing         = object_config.support_base_pattern_spacing.value + support_flow.spacing();
                 coordf_t support_density         = std::min(1., support_flow.spacing() / support_spacing);
                 ts_layer->support_fills.no_sort = false;
+                // ORCA: per-layer Fill instances to avoid shared-state races during interlaced interfaces.
+                std::shared_ptr<Fill> filler_interface = std::shared_ptr<Fill>(Fill::new_from_type(m_support_params.contact_fill_pattern));
+                std::shared_ptr<Fill> filler_Roof1stLayer = std::shared_ptr<Fill>(Fill::new_from_type(ipRectilinear));
+                filler_interface->set_bounding_box(bbox_object);
+                filler_Roof1stLayer->set_bounding_box(bbox_object);
 
                 for (auto& area_group : ts_layer->area_groups) {
                     ExPolygon& poly = *area_group.area;
                     ExPolygons polys;
                     FillParams fill_params;
+                    // ORCA: reset interface Fill state per area group to keep angles deterministic.
+                    filler_interface->fixed_angle = false;
+                    filler_interface->layer_id = size_t(-1);
+                    filler_interface->angle = base_support_angle + M_PI_2; // default interface angle is perpendicular to support angle
                     if (area_group.type != SupportLayer::BaseType) {
                         // interface
                         if (layer_id == 0) {
@@ -1519,6 +1523,8 @@ void TreeSupport::generate_toolpaths()
                         fill_params.density = interface_density;
                         // Note: spacing means the separation between two lines as if they are tightly extruded
                         filler_Roof1stLayer->spacing = interface_flow.spacing();
+                        filler_Roof1stLayer->angle = base_support_angle;
+                        fill_params.dont_sort = true;
                         // generate a perimeter first to support interface better
                         ExtrusionEntityCollection* temp_support_fills = new ExtrusionEntityCollection();
                         make_perimeter_and_infill(temp_support_fills->entities, poly, 1, interface_flow, erSupportMaterial,
@@ -1533,18 +1539,36 @@ void TreeSupport::generate_toolpaths()
                         fill_params.density = bottom_interface_density;
                         filler_interface->spacing = interface_flow.spacing();
 
+                        if (m_object_config->support_interface_pattern == smipGrid) {
+                            filler_interface->angle = base_support_angle;
+                            fill_params.dont_sort = true;
+                        }
+
+                        if (m_object_config->support_interface_pattern == smipRectilinearInterlaced) {
+                            // ORCA: explicit 0/90 alternation for rectilinear interlaced interfaces.
+                            filler_interface->fixed_angle = true;
+                            filler_interface->angle = base_support_angle + ((area_group.interface_id & 1) * M_PI_2);
+                            fill_params.dont_sort = true;
+                        }
+
                         fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys,
                             filler_interface.get(), fill_params, erSupportMaterialInterface, interface_flow);
                     } else if (area_group.type == SupportLayer::RoofType) {
                         // roof_areas
                         fill_params.density       = interface_density;
                         filler_interface->spacing = interface_flow.spacing();
+
                         if (m_object_config->support_interface_pattern == smipGrid) {
-                            filler_interface->angle = Geometry::deg2rad(object_config.support_angle.value);
+                            filler_interface->angle = base_support_angle;
                             fill_params.dont_sort = true;
                         }
-                        if (m_object_config->support_interface_pattern == smipRectilinearInterlaced)
-                            filler_interface->layer_id = area_group.interface_id;
+
+                        if (m_object_config->support_interface_pattern == smipRectilinearInterlaced) {
+                            // ORCA: explicit 0/90 alternation for rectilinear interlaced interfaces.
+                            filler_interface->fixed_angle = true;
+                            filler_interface->angle = base_support_angle + ((area_group.interface_id & 1) * M_PI_2);
+                            fill_params.dont_sort = true;
+                        }
 
                         fill_expolygons_generate_paths(ts_layer->support_fills.entities, polys, filler_interface.get(), fill_params, erSupportMaterialInterface,
                                                        interface_flow);
@@ -2270,6 +2294,39 @@ void TreeSupport::draw_circles()
         });
 
 
+        // ORCA: normalize interface_id sequencing to follow printed interface layers only.
+        if (m_object_config->support_interface_pattern == smipRectilinearInterlaced) {
+            int roof_interface_id = 0;
+            int floor_interface_id = 0;
+            bool has_roof_interface;
+            bool has_floor_interface;
+
+            for (size_t layer_nr = 0; layer_nr < m_ts_data->layer_heights.size(); ++layer_nr) {
+                SupportLayer *ts_layer = m_object->get_support_layer(layer_nr + m_raft_layers);
+                if (ts_layer == nullptr)
+                    continue;
+
+                has_roof_interface = false;
+                has_floor_interface = false;
+
+                for (auto &area_group : ts_layer->area_groups) {
+                    if (area_group.type == SupportLayer::RoofType || area_group.type == SupportLayer::Roof1stLayer) {
+                        area_group.interface_id = roof_interface_id;
+                        has_roof_interface = true;
+                    } else if (area_group.type == SupportLayer::FloorType) {
+                        area_group.interface_id = floor_interface_id;
+                        has_floor_interface = true;
+                    }
+                }
+
+                if (has_roof_interface)
+                    ++roof_interface_id;
+
+                if (has_floor_interface)
+                    ++floor_interface_id;
+            }
+        }
+
         if (with_lightning_infill)
         {
             const bool global_lightning_infill = true;
@@ -2534,6 +2591,7 @@ void TreeSupport::drop_nodes()
                 layer_radius.emplace(calc_radius(node_dist));
             }
         }
+
         // parallel pre-compute avoidance
         tbb::parallel_for(tbb::blocked_range<size_t>(0, contact_nodes.size() - 1), [&](const tbb::blocked_range<size_t> &range) {
             for (size_t layer_nr = range.begin(); layer_nr < range.end(); layer_nr++) {
