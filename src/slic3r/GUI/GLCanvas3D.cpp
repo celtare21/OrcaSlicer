@@ -320,11 +320,6 @@ void GLCanvas3D::LayersEditing::render_variable_layer_height_dialog(const GLCanv
     ImGui::SetCursorPosX(input_align);
     ImGui::BBLDragFloat("##adaptive_input", &m_adaptive_quality, 0.05f, 0.0f, 0.0f, "%.2f");
 
-    imgui.bbl_checkbox("##limit_max_layer_height", m_limit_max_layer_height);
-    ImGui::SameLine();
-    ImGui::AlignTextToFramePadding();
-    imgui.text(_L("Limit to layer height"));
-
     if (imgui.button(_L("Smooth")))
         wxPostEvent((wxEvtHandler*)canvas.get_wxglcanvas(), HeightProfileSmoothEvent(EVT_GLCANVAS_SMOOTH_LAYER_HEIGHT_PROFILE, m_smooth_params));
     ImGui::SameLine();
@@ -363,6 +358,11 @@ void GLCanvas3D::LayersEditing::render_variable_layer_height_dialog(const GLCanv
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     imgui.text(_L("Keep min"));
+    ImGui::SameLine();
+    imgui.bbl_checkbox("##limit_max_layer_height", m_limit_max_layer_height);
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    imgui.text(_L("Limit to layer height"));
 
     ImGui::Separator();
 
