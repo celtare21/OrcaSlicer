@@ -579,6 +579,7 @@ private:
     // object id
     size_t               m_id;
     void apply_conical_overhang();
+    void apply_sacrificial_bridges();
 
  public:
     //BBS: When printing multi-material objects, this settings will make slicer to clip the overlapping object parts one by the other.
