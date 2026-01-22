@@ -3904,20 +3904,27 @@ void organic_draw_branches(
                             }
 #endif
                             if (config.settings.support_floor_layers > 0) {
-                                for (int i = int(bottom_extra_slices.size()) - 1; i >= 0; -- i) {
-                                    Polygons contacts;
+                                Polygons contacts;
+                                if (!bottom_extra_slices.empty()) {
+                                    const int contact_idx = int(bottom_extra_slices.size()) - 1; // Use the lowest contact slice as the footprint.
 
                                     // ORCA: non-zero bottom Z should not be clipped by placeable areas.
                                     if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
-                                        contacts = intersection_clipped(bottom_extra_slices[i].polygons, Polygons{volumes.m_bed_area}, ApplySafetyOffset::Yes);
+                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, Polygons{volumes.m_bed_area}, ApplySafetyOffset::Yes);
                                     else
-                                        contacts = intersection_clipped(bottom_extra_slices[i].polygons, volumes.getPlaceableAreas(0, layer_begin - i - 1, [] {}), ApplySafetyOffset::Yes);
-
-                                    remove_small(contacts, tiny_area);
-
-                                    if (!contacts.empty())
-                                        bottom_contacts.emplace_back(std::move(contacts));
+                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, volumes.getPlaceableAreas(0, layer_begin - contact_idx - 1, [] {}), ApplySafetyOffset::Yes);
+                                } else {
+                                    // Fallback: use the current contact slice when no propagation happened.
+                                    if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
+                                        contacts = slice_front_contact;
+                                    else
+                                        contacts = intersection_clipped(slice_front_contact, volumes.getPlaceableAreas(0, layer_begin, [] {}), ApplySafetyOffset::Yes);
                                 }
+
+                                remove_small(contacts, tiny_area);
+
+                                if (!contacts.empty())
+                                    bottom_contacts.emplace_back(std::move(contacts));
 
                                 // ORCA: ensure bottom contacts exist if clipping removed them.
                                 if (bottom_contacts.empty() && config.support_rests_on_model && layer_begin > 0 && !slice_front_contact.empty())
@@ -3937,24 +3944,7 @@ void organic_draw_branches(
                             bottom_contacts.emplace_back(slice_front_contact);
 
                     }
-                    // ORCA: Ensure organic bottom contacts generate a full layer stack up to the
-                    // configured floor/interface layer count. Organic supports may otherwise produce
-                    // only a single bottom contact layer and project it downward, which causes the
-                    // classification of bottom interface layers to depend on top interface settings.
-                    // Padding restores consistent behavior of bottom interface layers.
-                    if (config.settings.support_floor_layers > 0 && !bottom_contacts.empty()) {
-                            int floor_layers = int(config.settings.support_floor_layers);
-                            if (floor_layers < 0)
-                                floor_layers = int(config.settings.support_roof_layers);
-                            if (floor_layers > 0) {
-                                size_t target_layers = std::min<size_t>(size_t(floor_layers), slices.size());
-                                if (bottom_contacts.size() < target_layers) {
-                                    const Polygons &last = bottom_contacts.back();
-                                    while (bottom_contacts.size() < target_layers)
-                                        bottom_contacts.emplace_back(last);
-                                }
-                            }
-                        }
+                    // ORCA: bottom contacts provide the footprint; interface layers are built later.
 
 #if 0
                     //FIXME branch.has_tip seems to not be reliable.
