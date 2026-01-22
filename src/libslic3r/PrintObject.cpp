@@ -420,9 +420,6 @@ void PrintObject::make_perimeters()
     // prerequisites
     this->slice();
 
-    // ORCA: Apply tangential sacrificial bridging pre-processing
-    TangentialHoleBridging::apply(this);
-
     if (! this->set_started(posPerimeters))
         return;
 
