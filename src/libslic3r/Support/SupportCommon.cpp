@@ -1708,8 +1708,11 @@ void generate_support_toolpaths(
             };
             const bool top_interfaces = config.support_interface_top_layers.value != 0;
             const bool bottom_interfaces = top_interfaces && config.support_interface_bottom_layers != 0;
+            // ORCA: Organic tree uses projected contacts to build the interface stack; avoid extra bottom-contact extrusion.
+            const bool organic_tree = support_params.support_style == SupportMaterialStyle::smsTreeOrganic;
             extrude_interface(top_contact_layer,    raft_layer ? InterfaceLayerType::RaftContact : top_interfaces ? InterfaceLayerType::TopContact : InterfaceLayerType::InterfaceAsBase);
-            extrude_interface(bottom_contact_layer, bottom_interfaces ? InterfaceLayerType::BottomContact : InterfaceLayerType::InterfaceAsBase);
+            if (!organic_tree)
+                extrude_interface(bottom_contact_layer, bottom_interfaces ? InterfaceLayerType::BottomContact : InterfaceLayerType::InterfaceAsBase);
             extrude_interface(interface_layer,      top_interfaces ? InterfaceLayerType::Interface : InterfaceLayerType::InterfaceAsBase);
 
             // Base interface layers under soluble interfaces
