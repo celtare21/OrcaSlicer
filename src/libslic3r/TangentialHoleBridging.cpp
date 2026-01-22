@@ -32,110 +32,142 @@ void TangentialHoleBridging::apply(PrintObject* print_object)
         if (overhangs.empty()) continue;
 
         for (const ExPolygon& ov : overhangs) {
-            if (ov.holes.empty()) continue;
-
-            // Find the largest inner hole (D1) - assume it's the center hole we want to keep open
-            const Polygon* hole_D1 = &ov.holes[0];
-            double max_area = 0;
-            for (const Polygon& h : ov.holes) {
-                double area = std::abs(h.area());
-                if (area > max_area) {
-                    max_area = area;
-                    hole_D1 = &h;
-                }
-            }
-
-            BoundingBox hole_bbox = hole_D1->bounding_box();
-            Point center = hole_bbox.center();
-            double r_small = (double)std::min(hole_bbox.size().x(), hole_bbox.size().y()) / 2.0;
-
-            // 1. Create "Bridge Base" = Overhang Region + Anchor (3mm into wall)
-            // We expand the outer contour of the overhang to anchor it, but keep the inner hole.
+            // Calculate Anchor Zone (Shelf Contour + 3mm)
+            // This ensures bridges follow the curve and anchor into the wall.
+            double anchor_dist = scale_(3.0);
+            Polygons shelf_contour;
+            shelf_contour.push_back(ov.contour);
+            // Offset contour outwards to define the valid area for bridging
+            ExPolygons anchor_zone = offset_ex(shelf_contour, anchor_dist);
             
-            double anchor = scale_(3.0);
-            Polygons ov_contours;
-            ov_contours.push_back(ov.contour);
-            ExPolygons expanded_contours = offset_ex(ov_contours, anchor);
-            
-            // Re-subtract the original hole to ensure we don't block the center
-            Polygons holes;
-            holes.push_back(*hole_D1);
-            ExPolygons bridge_base = diff_ex(expanded_contours, holes);
+            // Iterate over all holes in the overhang.
+            for (const Polygon& hole : ov.holes) {
+                BoundingBox hole_bbox = hole.bounding_box();
+                Point center = hole_bbox.center();
+                coord_t rx = hole_bbox.size().x() / 2;
+                coord_t ry = hole_bbox.size().y() / 2;
 
-            // 2. Define Masks for Tangential Bridges
-            // Vertical Mask: Covers Left/Right sides (|x| > r_small)
-            // Horizontal Mask: Covers Top/Bottom sides (|y| > r_small)
-            
-            double mask_size = scale_(1000.0); // Large enough to cover the part
-            
-            auto create_mask = [&](bool vertical) {
-                ExPolygons mask;
-                for (int sign : {-1, 1}) {
+                // Ignore tiny holes (artefacts or too small for bridging logic)
+                if (rx < scale_(1.0) || ry < scale_(1.0)) continue;
+
+                // Dynamic overlap to ensure large holes are bridged correctly (15% of radius or min 0.5mm)
+                double overlap = std::max(scale_(0.5), (double)rx * 0.15);
+                
+                // Helper to create a rectangle
+                auto make_rect = [](coord_t x_min, coord_t y_min, coord_t x_max, coord_t y_max) {
                     Polygon p;
                     p.points.resize(4);
-                    // If vertical: x from [r, huge], y from [-huge, huge]
-                    // If horizontal: y from [r, huge], x from [-huge, huge]
+                    p.points[0] = Point(x_min, y_min);
+                    p.points[1] = Point(x_max, y_min);
+                    p.points[2] = Point(x_max, y_max);
+                    p.points[3] = Point(x_min, y_max);
+                    return p;
+                };
+
+                coord_t c_x = center.x();
+                coord_t c_y = center.y();
+                coord_t ovl = static_cast<coord_t>(overlap);
+                coord_t huge_len = scale_(1000.0); // Effectively infinite length for clipping
+
+                // 1. Vertical Bars (Left / Right) -> Layer N-1
+                // Position: Tangent to Inner Hole X
+                ExPolygons bridges_vertical;
+                {
+                    // Left Bar
+                    // Extend from Tangent (Inner) to Infinite (Outer)
+                    bridges_vertical.push_back(ExPolygon(make_rect(
+                        c_x - rx - huge_len, c_y - huge_len,
+                        c_x - rx + ovl, c_y + huge_len
+                    )));
+                    // Right Bar
+                    bridges_vertical.push_back(ExPolygon(make_rect(
+                        c_x + rx - ovl, c_y - huge_len,
+                        c_x + rx + huge_len, c_y + huge_len
+                    )));
+                }
+
+                // 2. Horizontal Bars (Top / Bottom) -> Layer N-2
+                // Position: Tangent to Inner Hole Y
+                ExPolygons bridges_horizontal;
+                {
+                    // Bottom Bar
+                    bridges_horizontal.push_back(ExPolygon(make_rect(
+                        c_x - huge_len, c_y - ry - huge_len,
+                        c_x + huge_len, c_y - ry + ovl
+                    )));
+                    // Top Bar
+                    bridges_horizontal.push_back(ExPolygon(make_rect(
+                        c_x - huge_len, c_y + ry - ovl,
+                        c_x + huge_len, c_y + ry + huge_len
+                    )));
+                }
+
+                // Clip bars to the Anchor Zone (Shelf + 3mm)
+                // This trims the "infinite" bars to the exact shape of the counterbore wall + anchor depth.
+                bridges_vertical = intersection_ex(bridges_vertical, anchor_zone);
+                bridges_horizontal = intersection_ex(bridges_horizontal, anchor_zone);
+                
+                auto integrate_polys = [&](Layer* layer, const ExPolygons& polys_to_add) {
+                    if (layer->region_count() == 0) return;
                     
-                    coord_t r_start = (sign == 1) ? static_cast<coord_t>(r_small) : -static_cast<coord_t>(mask_size);
-                    coord_t r_end   = (sign == 1) ? static_cast<coord_t>(mask_size) : -static_cast<coord_t>(r_small);
-                    
-                    if (vertical) {
-                        p.points[0] = center + Point(r_start, -static_cast<coord_t>(mask_size));
-                        p.points[1] = center + Point(r_end,   -static_cast<coord_t>(mask_size));
-                        p.points[2] = center + Point(r_end,    static_cast<coord_t>(mask_size));
-                        p.points[3] = center + Point(r_start,  static_cast<coord_t>(mask_size));
-                    } else {
-                        p.points[0] = center + Point(-static_cast<coord_t>(mask_size), r_start);
-                        p.points[1] = center + Point( static_cast<coord_t>(mask_size), r_start);
-                        p.points[2] = center + Point( static_cast<coord_t>(mask_size), r_end);
-                        p.points[3] = center + Point(-static_cast<coord_t>(mask_size), r_end);
+                    // 1. Clip to Layer Footprint (Part Outline)
+                    // Prevents bridges from sticking out of the component if the wall is thin.
+                    Polygons layer_outlines;
+                    for (const ExPolygon& exp : layer->lslices) {
+                         layer_outlines.push_back(exp.contour);
                     }
-                    mask.push_back(ExPolygon(p));
-                }
-                return mask;
-            };
+                    ExPolygons footprint = union_ex(layer_outlines);
+                    ExPolygons clipped_polys = intersection_ex(polys_to_add, footprint);
+                    
+                    if (clipped_polys.empty()) return;
 
-            ExPolygons mask_vertical = create_mask(true);
-            ExPolygons mask_horizontal = create_mask(false);
+                    // Strategy: Negative Mask.
+                    // The bridges are allowed everywhere EXCEPT in "Neighbor Holes".
+                    
+                    Polygons neighbor_holes;
+                    for (const ExPolygon& exp : layer->lslices) {
+                        for (const Polygon& h : exp.holes) {
+                            // Check if this hole is the "Current Hole" we are bridging.
+                            // We use the center point to check.
+                            if (!h.contains(center)) {
+                                neighbor_holes.push_back(h);
+                            }
+                        }
+                    }
+                    
+                    ExPolygons forbidden_area;
+                    if (!neighbor_holes.empty()) {
+                        forbidden_area = union_ex(neighbor_holes);
+                    }
+                    
+                    // Clip: Bridge MINUS Neighbors
+                    ExPolygons valid_polys;
+                    if (forbidden_area.empty()) {
+                        valid_polys = clipped_polys;
+                    } else {
+                        valid_polys = diff_ex(clipped_polys, forbidden_area);
+                    }
+                    
+                    if (valid_polys.empty()) return;
 
-            auto integrate_polys = [&](Layer* layer, const ExPolygons& polys_to_add) {
-                if (layer->region_count() == 0) return;
-                
-                // 1. Clip to Footprint (Outer hull of the object)
-                // Use union of contours to get the filled shape of the layer.
-                Polygons layer_outlines;
-                for (const ExPolygon& exp : layer->lslices) {
-                    layer_outlines.push_back(exp.contour);
-                }
-                ExPolygons footprint = union_ex(layer_outlines);
-                
-                ExPolygons valid_polys = intersection_ex(polys_to_add, footprint);
-                
-                // 2. Merge into Region 0
-                LayerRegion* region = layer->get_region(0);
-                ExPolygons existing_polys = to_expolygons(region->slices.surfaces);
-                ExPolygons merged_polys = union_ex(existing_polys, valid_polys);
-                
-                region->slices.surfaces.clear();
-                region->slices.append(merged_polys, stInternal);
-                
-                // 3. Update global lslices
-                layer->lslices = union_ex(layer->lslices, valid_polys);
-            };
+                    // Merge into Region 0
+                    LayerRegion* region = layer->get_region(0);
+                    ExPolygons existing_polys = to_expolygons(region->slices.surfaces);
+                    ExPolygons merged_polys = union_ex(existing_polys, valid_polys);
+                    
+                    region->slices.surfaces.clear();
+                    region->slices.append(merged_polys, stInternal);
+                    
+                    // Update global lslices
+                    layer->lslices = union_ex(layer->lslices, valid_polys);
+                };
 
-            // Apply to layers N-1 and N-2
-            // N-1 (Index i-1): Vertical Bridge (Supports Left/Right of ring)
-            int layer_idx_N1 = (int)i - 1;
-            if (layer_idx_N1 >= 0) {
-                ExPolygons bridge_N1 = intersection_ex(bridge_base, mask_vertical);
-                integrate_polys(m_layers[layer_idx_N1], bridge_N1);
-            }
+                // Apply to layers N-1 and N-2
+                int layer_idx_N1 = (int)i - 1;
+                if (layer_idx_N1 >= 0) integrate_polys(m_layers[layer_idx_N1], bridges_vertical);
 
-            // N-2 (Index i-2): Horizontal Bridge (Supports Top/Bottom of ring)
-            int layer_idx_N2 = (int)i - 2;
-            if (layer_idx_N2 >= 0) {
-                ExPolygons bridge_N2 = intersection_ex(bridge_base, mask_horizontal);
-                integrate_polys(m_layers[layer_idx_N2], bridge_N2);
+                int layer_idx_N2 = (int)i - 2;
+                if (layer_idx_N2 >= 0) integrate_polys(m_layers[layer_idx_N2], bridges_horizontal);
             }
         }
     }
