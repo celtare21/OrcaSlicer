@@ -2551,7 +2551,7 @@ void GLGizmoCut3D::process_contours()
     if (CutMode(m_mode) == CutMode::cutTongueAndGroove) {
         if (has_valid_groove()) {
             Cut cut(model_objects[object_idx], instance_idx, get_cut_matrix(selection));
-            const ModelObjectPtrs& new_objects = cut.perform_with_groove(m_groove, m_rotation_m, true);
+            const ModelObjectPtrs& new_objects = cut.perform_with_groove(m_groove, m_rotation_m, m_groove_count, m_groove_gap, m_radius,  true);
             if (!new_objects.empty())
                 m_part_selection = PartSelection(new_objects.front(), instance_idx);
         }
@@ -3567,7 +3567,7 @@ void GLGizmoCut3D::perform_cut(const Selection& selection)
 
         Cut cut(cut_mo, instance_idx, get_cut_matrix(selection), attributes);
         const ModelObjectPtrs& new_objects = cut_by_contour    ? cut.perform_by_contour(m_part_selection.get_cut_parts(), dowels_count):
-                                             cut_with_groove   ? cut.perform_with_groove(m_groove, m_rotation_m) :
+                                             cut_with_groove   ? cut.perform_with_groove(m_groove, m_rotation_m, m_groove_count, m_groove_gap, m_radius) :
                                                                  cut.perform_with_plane();
 
         // fix_non_manifold_edges
