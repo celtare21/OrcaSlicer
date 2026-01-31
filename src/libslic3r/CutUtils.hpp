@@ -64,7 +64,9 @@ public:
                                                const float        m_radius,
                                                bool               keep_as_parts = false);
 
-}; // namespace Cut
+    static float calculate_groove_width(const Cut::Groove& groove, const float m_radius);
+
+    }; // namespace Cut
 
 } // namespace Slic3r
 

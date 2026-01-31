@@ -228,7 +228,8 @@ GLGizmoCut3D::GLGizmoCut3D(GLCanvas3D& parent, const std::string& icon_filename,
         {"Build Volume" , _u8L("Build Volume")}, // ORCA
         {"Multiple"     , _u8L("Multiple")}, // ORCA
         {"Count"        , _u8L("Count")}, // ORCA
-        {"Gap"          , _u8L("Gap")} // ORCA
+        {"Gap"          , _u8L("Gap")}, // ORCA
+        {"Spacing (Calculated)", _u8L("Spacing (Calculated)")} // ORCA
     };
 
 //    update_connector_shape();
@@ -615,8 +616,7 @@ bool GLGizmoCut3D::render_slider_two_input(const std::string& label, float& valu
     return !is_approx(old_val, value) || !is_approx(old_tolerance, tolerance);
 }
 
-bool GLGizmoCut3D::render_slider_input(
-    const std::string& label, float& value_in, float min_val /* = -0.1f*/)
+bool GLGizmoCut3D::render_slider_input(const std::string& label, float& value_in, float min_val /* = -0.1f*/, float max_val /* = 100.f*/)
 {
     // -------- [ ]
     // slider_with + input_width + slider_with + item_in_gap
@@ -637,12 +637,15 @@ bool GLGizmoCut3D::render_slider_input(
     bool m_imperial_units = false;
 
     float value = value_in;
-    if (m_imperial_units)
+    float max_value = max_val;
+    if (m_imperial_units) {
         value *= f_mm_to_in;
+        max_value *= f_mm_to_in;
+    }
     float old_val = value;
 
     const BoundingBoxf3 bbox = m_bounding_box;
-    const float mean_size    = float((bbox.size().x() + bbox.size().y() + bbox.size().z()) / 3.0) * (m_imperial_units ? f_mm_to_in : 1.f);
+    //const float mean_size    = float((bbox.size().x() + bbox.size().y() + bbox.size().z())) * (m_imperial_units ? f_mm_to_in : 1.f);
     const float min_v        = min_val > 0.f ? /*std::min(max_val, mean_size)*/ min_val : 1.f;
 
     float min_size = value_in < 0.f ? UndefMinVal : min_v;
@@ -651,11 +654,11 @@ bool GLGizmoCut3D::render_slider_input(
     }
     std::string format = value_in < 0.f ? " " : m_imperial_units ? "%.4f  " + _u8L("in") : "%.2f  " + _u8L("mm");
 
-    m_imgui->bbl_slider_float_style(("##" + label).c_str(), &value, min_size, mean_size, format.c_str());
+    m_imgui->bbl_slider_float_style(("##" + label).c_str(), &value, min_size, max_value, format.c_str());
 
     ImGui::SameLine(left_width);
     ImGui::PushItemWidth(input_width);
-    ImGui::BBLDragFloat(("##input_" + label).c_str(), &value, 0.05f, min_size, mean_size, format.c_str());
+    ImGui::BBLDragFloat(("##input_" + label).c_str(), &value, 0.05f, min_size, max_value, format.c_str());
 
     value_in = value * float(m_imperial_units ? GizmoObjectManipulation::in_to_mm : 1.0);
 
@@ -2652,9 +2655,11 @@ void GLGizmoCut3D::render_groove_float_input(const std::string& label, float& in
         m_imgui->disabled_begin(true);
 
     bool is_changed{false};
+    Vec2d plate_size = wxGetApp().plater()->get_partplate_list().get_plate(0)->get_size();
+    float max_val    = std::max(plate_size.x(), plate_size.y());
 
     float val       = in_val;
-    if (render_slider_input(label, val, -0.1f)) {
+    if (render_slider_input(label, val, -0.1f, max_val)) {
         if (m_imgui->get_last_slider_status().can_take_snapshot) {
             Plater::TakeSnapshot snapshot(wxGetApp().plater(), GUI::format("%1%: %2%", _u8L("Groove change"), label),
                                           UndoRedo::SnapshotType::GizmoAction);
@@ -2896,6 +2901,15 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
             m_imgui->text_colored(ImGuiWrapper::COL_ORANGE_LIGHT, m_labels_map["Multiple"] + ": ");
             render_groove_int_input(m_labels_map["Count"], m_groove_count, m_groove_count_init , 1, 100);
             render_groove_float_input(m_labels_map["Gap"], m_groove_gap, m_groove_gap_init, m_groove_count == 1);
+
+            m_imgui->disabled_begin(true);
+            const float groove_width = Cut::calculate_groove_width(m_groove, m_radius);
+            m_imgui->text(m_labels_map["Spacing (Calculated)"]);
+            ImGui::SameLine(m_label_width);
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(2) << (m_groove_gap + groove_width);
+            m_imgui->text(oss.str() + "mm");        
+            m_imgui->disabled_end();
         }
 
         ImGui::Separator();
