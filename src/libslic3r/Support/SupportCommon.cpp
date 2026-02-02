@@ -1619,6 +1619,8 @@ void generate_support_toolpaths(
 
             // This layer is a raft contact layer. Any contact polygons at this layer are raft contacts.
             bool raft_layer = slicing_params.interface_raft_layers && top_contact_layer.layer && is_approx(top_contact_layer.layer->print_z, slicing_params.raft_contact_top_z);
+            // ORCA: Organic tree uses projected contacts to build the interface stack; avoid extra bottom-contact extrusion.
+            const bool organic_tree = support_params.support_style == SupportMaterialStyle::smsTreeOrganic;
             if (config.support_interface_top_layers == 0) {
                 // If no top interface layers were requested, we treat the contact layer exactly as a generic base layer.
                 // Don't merge the raft contact layer though.
@@ -1647,10 +1649,11 @@ void generate_support_toolpaths(
                     base_layer.merge(std::move(bottom_contact_layer));
                 else if (base_layer.empty() && ! bottom_contact_layer.empty() && ! bottom_contact_layer.layer->bridging)
                     base_layer = std::move(bottom_contact_layer);
-            } else if (bottom_contact_layer.could_merge(top_contact_layer) && ! raft_layer)
+            } else if (bottom_contact_layer.could_merge(top_contact_layer) && ! raft_layer) {
                 top_contact_layer.merge(std::move(bottom_contact_layer));
-            else if (bottom_contact_layer.could_merge(interface_layer))
+            } else if (bottom_contact_layer.could_merge(interface_layer) && ! organic_tree) {
                 bottom_contact_layer.merge(std::move(interface_layer));
+            }
 
 #if 0
             if ( ! interface_layer.empty() && ! base_layer.empty()) {
@@ -1708,13 +1711,10 @@ void generate_support_toolpaths(
             };
             const bool top_interfaces = config.support_interface_top_layers.value != 0;
             const bool bottom_interfaces = top_interfaces && config.support_interface_bottom_layers != 0;
-            // ORCA: Organic tree uses projected contacts to build the interface stack; avoid extra bottom-contact extrusion.
-            const bool organic_tree = support_params.support_style == SupportMaterialStyle::smsTreeOrganic;
             extrude_interface(top_contact_layer,    raft_layer ? InterfaceLayerType::RaftContact : top_interfaces ? InterfaceLayerType::TopContact : InterfaceLayerType::InterfaceAsBase);
             if (!organic_tree)
                 extrude_interface(bottom_contact_layer, bottom_interfaces ? InterfaceLayerType::BottomContact : InterfaceLayerType::InterfaceAsBase);
             extrude_interface(interface_layer,      top_interfaces ? InterfaceLayerType::Interface : InterfaceLayerType::InterfaceAsBase);
-
             // Base interface layers under soluble interfaces
             if ( ! base_interface_layer.empty() && ! base_interface_layer.polygons_to_extrude().empty()) {
                 Fill *filler = filler_base_interface.get();

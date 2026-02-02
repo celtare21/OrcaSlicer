@@ -26,7 +26,6 @@
 
 #include <cassert>
 #include <chrono>
-#include <fstream>
 #include <optional>
 #include <stdio.h>
 #include <string>
@@ -54,7 +53,6 @@
 #define _L(s) Slic3r::I18N::translate(s)
 #endif
 
- //#define TREESUPPORT_DEBUG_SVG
 
 namespace Slic3r
 {
@@ -283,16 +281,6 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
                     //FIXME enforcer_overhang_offset is a fudge constant!
                     enforced_overhangs = diff(offset(union_ex(enforced_overhangs), enforcer_overhang_offset),
                         lower_layer.lslices);
-#ifdef TREESUPPORT_DEBUG_SVG
-//                    if (! intersecting_edges(enforced_overhangs).empty())
-                    {
-                        static int irun = 0;
-                        SVG::export_expolygons(debug_out_path("treesupport-self-intersections-%d.svg", ++irun),
-                            { { { current_layer.lslices },        { "current_layer.lslices", "yellow", 0.5f } },
-                              { { lower_layer.lslices },          { "lower_layer.lslices", "gray", 0.5f } },
-                              { { union_ex(enforced_overhangs) }, { "enforced_overhangs", "red",  "black", "", scaled<coord_t>(0.1f), 0.5f } } });
-                    }
-#endif // TREESUPPORT_DEBUG_SVG
                     //check_self_intersections(enforced_overhangs, "generate_overhangs - enforced overhangs2");
                     overhangs = overhangs.empty() ? std::move(enforced_overhangs) : union_(overhangs, enforced_overhangs);
                     //check_self_intersections(overhangs, "generate_overhangs - enforcers");
@@ -1803,11 +1791,6 @@ static void increase_areas_one_layer(
                 // Abstract representation of the model outline. If an influence area would move through it, it could teleport through a wall.
                 volumes.getWallRestriction(support_element_collision_radius(config, parent.state), layer_idx, parent.state.use_min_xy_dist);
 
-#ifdef TREESUPPORT_DEBUG_SVG
-            SVG::export_expolygons(debug_out_path("treesupport-increase_areas_one_layer-%d-%ld.svg", layer_idx, int(merging_area_idx)),
-                { { { union_ex(wall_restriction) },      { "wall_restricrictions", "gray", 0.5f } },
-                  { { union_ex(parent.influence_area) }, { "parent", "red",  "black", "", scaled<coord_t>(0.1f), 0.5f } } });
-#endif // TREESUPPORT_DEBUG_SVG
 
             Polygons to_bp_data, to_model_data;
             coord_t radius = support_element_collision_radius(config, elem);
@@ -1938,11 +1921,6 @@ static void increase_areas_one_layer(
                         // was never made for precision in the single digit micron range.
                         offset_slow = safe_offset_inc(parent.influence_area, extra_speed + extra_slow_speed + config.maximum_move_distance_slow,
                             wall_restriction, safe_movement_distance, offset_independant_faster ? safe_movement_distance + radius : 0, 2);
-#ifdef TREESUPPORT_DEBUG_SVG
-                        SVG::export_expolygons(debug_out_path("treesupport-increase_areas_one_layer-slow-%d-%ld.svg", layer_idx, int(merging_area_idx)),
-                            { { { union_ex(wall_restriction) }, { "wall_restricrictions", "gray", 0.5f } },
-                              { { union_ex(offset_slow) },      { "offset_slow", "red",  "black", "", scaled<coord_t>(0.1f), 0.5f } } });
-#endif // TREESUPPORT_DEBUG_SVG
                     }
                     if (offset_fast.empty() && settings.increase_speed != slow_speed) {
                         if (offset_independant_faster)
@@ -1952,11 +1930,6 @@ static void increase_areas_one_layer(
                             const coord_t delta_slow_fast = config.maximum_move_distance - (config.maximum_move_distance_slow + extra_slow_speed);
                             offset_fast = safe_offset_inc(offset_slow, delta_slow_fast, wall_restriction, safe_movement_distance, safe_movement_distance + radius, offset_independant_faster ? 2 : 1);
                         }
-#ifdef TREESUPPORT_DEBUG_SVG
-                        SVG::export_expolygons(debug_out_path("treesupport-increase_areas_one_layer-fast-%d-%ld.svg", layer_idx, int(merging_area_idx)),
-                            { { { union_ex(wall_restriction) }, { "wall_restricrictions", "gray", 0.5f } },
-                              { { union_ex(offset_fast) },      { "offset_fast", "red",  "black", "", scaled<coord_t>(0.1f), 0.5f } } });
-#endif // TREESUPPORT_DEBUG_SVG
                     }
                 }
                 std::optional<SupportElementState> result;
@@ -3481,18 +3454,6 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
                     move_bounds, interface_placer, throw_on_cancel);
             auto t_gen = std::chrono::high_resolution_clock::now();
 
-#ifdef TREESUPPORT_DEBUG_SVG
-            for (size_t layer_idx = 0; layer_idx < move_bounds.size(); ++layer_idx) {
-                Polygons polys;
-                for (auto& area : move_bounds[layer_idx])
-                    append(polys, area.influence_area);
-                if (auto begin = move_bounds[layer_idx].begin(); begin != move_bounds[layer_idx].end())
-                    SVG::export_expolygons(debug_out_path("treesupport-initial_areas-%d.svg", layer_idx),
-                        { { { union_ex(volumes.getWallRestriction(support_element_collision_radius(config, begin->state), layer_idx, begin->state.use_min_xy_dist)) },
-                            { "wall_restricrictions", "gray", 0.5f } },
-                          { { union_ex(polys) }, { "parent", "red",  "black", "", scaled<coord_t>(0.1f), 0.5f } } });
-            }
-    #endif // TREESUPPORT_DEBUG_SVG
 
             // ### Propagate the influence areas downwards. This is an inherently serial operation.
             print.set_status(60, _L("Generating support"));
@@ -3846,8 +3807,10 @@ void organic_draw_branches(
                                 // ORCA: non-zero bottom Z should not be clipped by placeable areas.
                                 if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
                                     contacts = slice_front_contact;
-                                else
-                                    contacts = intersection_clipped(slice_front_contact, volumes.getPlaceableAreas(0, layer_begin, [] {}), ApplySafetyOffset::Yes);
+                                else {
+                                    Polygons placeable = volumes.getPlaceableAreas(0, layer_begin, [] {});
+                                    contacts = intersection_clipped(slice_front_contact, placeable, ApplySafetyOffset::Yes);
+                                }
 
                                 remove_small(contacts, tiny_area);
 
@@ -3879,7 +3842,9 @@ void organic_draw_branches(
                              // Only propagate until the rest area is smaller than this threshold.
                             //double                          support_area_min = 0.1 * support_area_min_radius;
                             for (LayerIndex layer_idx = layer_begin - 1; layer_idx >= layer_bottommost; -- layer_idx) {
-                                rest_support = diff_clipped(rest_support.empty() ? slice_front_contact : rest_support, volumes.getCollision(0, layer_idx, false), ApplySafetyOffset::Yes);
+                                LayerIndex collision_layer = (layer_idx == layer_begin - 1) ? layer_begin : layer_idx;
+                                Polygons collision = volumes.getCollision(0, collision_layer, false);
+                                rest_support = diff_clipped(rest_support.empty() ? slice_front_contact : rest_support, collision, ApplySafetyOffset::Yes);
                                 remove_small(rest_support, tiny_area);
                                 double rest_support_area = area(rest_support);
                                 if (rest_support_area < support_area_stop)
@@ -3911,14 +3876,18 @@ void organic_draw_branches(
                                     // ORCA: non-zero bottom Z should not be clipped by placeable areas.
                                     if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
                                         contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, Polygons{volumes.m_bed_area}, ApplySafetyOffset::Yes);
-                                    else
-                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, volumes.getPlaceableAreas(0, layer_begin - contact_idx - 1, [] {}), ApplySafetyOffset::Yes);
+                                    else {
+                                        Polygons placeable = volumes.getPlaceableAreas(0, layer_begin, [] {});
+                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, placeable, ApplySafetyOffset::Yes);
+                                    }
                                 } else {
                                     // Fallback: use the current contact slice when no propagation happened.
                                     if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
                                         contacts = slice_front_contact;
-                                    else
-                                        contacts = intersection_clipped(slice_front_contact, volumes.getPlaceableAreas(0, layer_begin, [] {}), ApplySafetyOffset::Yes);
+                                    else {
+                                        Polygons placeable = volumes.getPlaceableAreas(0, layer_begin, [] {});
+                                        contacts = intersection_clipped(slice_front_contact, placeable, ApplySafetyOffset::Yes);
+                                    }
                                 }
 
                                 remove_small(contacts, tiny_area);
