@@ -2898,6 +2898,7 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
             render_groove_angle_input(m_labels_map["Flap Angle"], m_groove.flaps_angle, m_groove.flaps_angle_init, 30.f, 120.f);
             render_groove_angle_input(m_labels_map["Groove Angle"], m_groove.angle, m_groove.angle_init, 0.f, 15.f);
 
+            ImGui::Spacing();
             m_imgui->text_colored(ImGuiWrapper::COL_ORANGE_LIGHT, m_labels_map["Multiple"] + ": ");
             render_groove_int_input(m_labels_map["Count"], m_groove_count, m_groove_count_init , 1, 100);
             render_groove_float_input(m_labels_map["Gap"], m_groove_gap, m_groove_gap_init, m_groove_count == 1);
