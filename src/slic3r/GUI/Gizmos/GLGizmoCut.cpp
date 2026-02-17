@@ -229,7 +229,7 @@ GLGizmoCut3D::GLGizmoCut3D(GLCanvas3D& parent, const std::string& icon_filename,
         {"Multiple"     , _u8L("Multiple")}, // ORCA
         {"Count"        , _u8L("Count")}, // ORCA
         {"Gap"          , _u8L("Gap")}, // ORCA
-        {"Spacing (Calculated)", _u8L("Spacing (Calculated)")} // ORCA
+        {"Spacing"      , _u8L("Spacing")} // ORCA
     };
 
 //    update_connector_shape();
@@ -2656,7 +2656,7 @@ void GLGizmoCut3D::render_groove_float_input(const std::string& label, float& in
 
     bool is_changed{false};
     Vec2d plate_size = wxGetApp().plater()->get_partplate_list().get_plate(0)->get_size();
-    float max_val    = std::max(plate_size.x(), plate_size.y());
+    float max_val    = std::max(plate_size.x(), plate_size.y()) / (std::max(m_groove_count - 1, 1));
 
     float val       = in_val;
     if (render_slider_input(label, val, -0.1f, max_val)) {
@@ -2905,7 +2905,7 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
 
             m_imgui->disabled_begin(true);
             const float groove_width = Cut::calculate_groove_width(m_groove, m_radius);
-            m_imgui->text(m_labels_map["Spacing (Calculated)"]);
+            m_imgui->text(m_labels_map["Spacing"]);
             ImGui::SameLine(m_label_width);
             std::ostringstream oss;
             oss << std::fixed << std::setprecision(2) << (m_groove_gap + groove_width);
