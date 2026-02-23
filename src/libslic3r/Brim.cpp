@@ -928,16 +928,67 @@ void make_brim(const Print& print, PrintTryCancel try_cancel, Polygons& islands_
     for (size_t iia = 0; iia < islands_area.size(); ++iia)
         islands_area[iia].translate(plate_shift);
 
-    for (auto iter = brimAreaMap.begin(); iter != brimAreaMap.end(); ++iter) {
-        if (!iter->second.empty()) {
-            brimMap.insert(std::make_pair(iter->first, makeBrimInfill(iter->second, print, islands_area)));
-        };
+    // Orca: Determine which extruders are actually used in the first layer
+    std::set<unsigned int> first_layer_extruders;
+
+    // Check object extruders used in first layer
+    for (const auto& [obj_id, extruder] : objPrintVec) {
+        const PrintObject* object = print.get_object(obj_id);
+
+        // Verify if this object actually prints on first layer
+        // (has slices on layer 0)
+        if (!object->layers().empty() && !object->layers().front()->lslices.empty()) {
+            first_layer_extruders.insert(extruder);
+        }
     }
-    for (auto iter = supportBrimAreaMap.begin(); iter != supportBrimAreaMap.end(); ++iter) {
-        if (!iter->second.empty()) {
-            supportBrimMap.insert(std::make_pair(iter->first, makeBrimInfill(iter->second, print, islands_area)));
-        };
+
+    bool is_by_object                 = (print.config().print_sequence == PrintSequence::ByObject);
+    bool is_multimaterial_first_layer = (first_layer_extruders.size() > 1);
+
+    if (is_multimaterial_first_layer || is_by_object) {
+        // Orca: Generate brims separately for each object when multiple extruders are used
+        for (auto iter = brimAreaMap.begin(); iter != brimAreaMap.end(); ++iter) {
+            if (!iter->second.empty()) {
+                brimMap.insert(std::make_pair(iter->first, makeBrimInfill(iter->second, print, islands_area)));
+            };
+        }
+        for (auto iter = supportBrimAreaMap.begin(); iter != supportBrimAreaMap.end(); ++iter) {
+            if (!iter->second.empty()) {
+                supportBrimMap.insert(std::make_pair(iter->first, makeBrimInfill(iter->second, print, islands_area)));
+            };
+        }
+    } else {
+        // Orca: Unified brim mode (single material, non-sequential printing)
+        ExPolygons all_brims_merged;
+
+        // Add all object brims
+        for (auto& [obj_id, brims] : brimAreaMap) {
+            if (!brims.empty())
+                expolygons_append(all_brims_merged, brims);
+        }
+
+        if (!all_brims_merged.empty()) {
+            // Merge all brims into a single continuous area
+            all_brims_merged = union_ex(all_brims_merged);
+
+            // Generate infill once for the merged brim area
+            ExtrusionEntityCollection merged_brim = makeBrimInfill(all_brims_merged, print, islands_area);
+
+            // In unified mode, we need to assign the merged brim to only one object
+            if (!objPrintVec.empty()) {
+                // Use the first object in the print order as the carrier for the unified brim
+                ObjectID first_object_id = objPrintVec[0].first;
+
+                // Assign the merged brim to the first object only
+                for (auto& [obj_id, _] : brimAreaMap) {
+                    if (obj_id == first_object_id) {
+                        brimMap[obj_id] = merged_brim;
+                    } else {
+                        brimMap[obj_id] = ExtrusionEntityCollection();
+                    }
+                }
+            }
+        }
     }
 }
-
 } // namespace Slic3r
