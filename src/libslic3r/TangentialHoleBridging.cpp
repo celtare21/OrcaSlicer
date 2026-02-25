@@ -186,14 +186,6 @@ void TangentialHoleBridging::apply(PrintObject* object)
                         s_top.points = { Point(l_x, inner_bbox.max.y()), Point(r_x, inner_bbox.max.y()), Point(r_x, t_y), Point(l_x, t_y) };
                         raw_struts_n1.push_back(s_bottom);
                         raw_struts_n1.push_back(s_top);
-                        
-                        Polygon s_left_n1;
-                        s_left_n1.points = { Point(inner_bbox.min.x() - strut_w, b_y), Point(inner_bbox.min.x(), b_y), Point(inner_bbox.min.x(), t_y), Point(inner_bbox.min.x() - strut_w, t_y) };
-                        Polygon s_right_n1;
-                        s_right_n1.points = { Point(inner_bbox.max.x(), b_y), Point(inner_bbox.max.x() + strut_w, b_y), Point(inner_bbox.max.x() + strut_w, t_y), Point(inner_bbox.max.x(), t_y) };
-                        raw_struts_n1.push_back(s_left_n1);
-                        raw_struts_n1.push_back(s_right_n1);
-                        
                     }
                 }
 
