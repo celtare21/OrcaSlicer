@@ -1181,12 +1181,15 @@ void PrintConfigDef::init_fff_params()
     def = this->add("bridge_density", coPercent);
     def->label = L("External bridge density");
     def->category = L("Strength");
-    def->tooltip = L("Controls the density (spacing) of external bridge lines. Default is 100%.\n\n"
-                     "Lower density external bridges can help improve reliability as there is more space for air to circulate "
-                     "around the extruded bridge, improving its cooling speed. Minimum is 10%.\n\n"
-                     "Higher densities can produce smoother bridge surfaces, as overlapping lines provide "
-                     "additional support during printing. Maximum is 120%.\n"
-                     "Note: Bridge density that is too high can cause warping or overextrusion.");
+    def->tooltip = L("Controls the density (spacing) of external bridge lines. Default is 100%, range is 10% to 120%.\n\n"
+                     "With thick bridges set, this directly sets the percentage of surface coverage, with values less than 100% meaning there are "
+                     "gaps between lines, and values greater than 100% meaning adjacent lines overlap.\n\n"
+                     "Without thick bridges set, this mostly adjusts the spacing, but can also result in changes to the thickness, and the surface "
+                     "coverage also depends on the layer height, internal solid infill line width, and bridge flow settings.\n\n"
+                     "Lower densitys with gaps between lines give more space for air to circulate around the extruding bridge, improving its cooling "
+                     "speed, which can reduce sag.\n\n"
+                     "Higher densities with overlapping lines give better contact and additional support from adjacent bridge lines when printing, "
+                     "which can produce stronger and smoother bridge surfaces. However, too much overlap can cause warping or overextrusion problems.");
     def->sidetext = "%";
     def->min = 10;
     def->max = 120;
@@ -1196,11 +1199,16 @@ void PrintConfigDef::init_fff_params()
     def = this->add("internal_bridge_density", coPercent);
     def->label = L("Internal bridge density");
     def->category = L("Strength");
-    def->tooltip = L("Controls the density (spacing) of internal bridge lines. 100% means solid bridge. Default is 100%.\n\n"
-                     "Lower density internal bridges can help reduce top surface pillowing and improve internal bridge reliability as there is more space for "
-                     "air to circulate around the extruded bridge, improving its cooling speed.\n\n"
-                     "This option works particularly well when combined with the second internal bridge over infill option, "
-                     "further improving internal bridging structure before solid infill is extruded.");
+    def->tooltip = L("Controls the density (spacing) of internal bridge lines. Default is 100%, range is 10% to 120%.\n\n"
+                     "With thick bridges set, this directly sets the percentage of surface coverage, with values less than 100% meaning there are "
+                     "gaps between lines, and values greater than 100% meaning adjacent lines overlap.\n\n"
+                     "Without thick bridges set, this mostly adjusts the spacing, but can also result in changes to the thickness, and the surface "
+                     "coverage also depends on the layer height, internal solid infill line width, and bridge flow settings.\n\n"
+                     "Lower densitys with gaps between lines use less material, cool and print a bit faster, and can help reduce top-surface pillowing. "
+                     "This works particularly well when combined with the second internal bridge over infill option, further improving the internal "
+                     "bridging structure to support the top-shell layers above.\n\n"
+                     "Higher densities with overlapping lines provide full surface coverage and a stronger support base for the top-shell layers "
+                     "above, but with too much overlap can cause warping or overextrusion problems.");
     def->sidetext = "%";
     def->min = 10;
     def->max = 100;
@@ -1210,7 +1218,14 @@ void PrintConfigDef::init_fff_params()
     def = this->add("bridge_flow", coFloat);
     def->label = L("Bridge flow ratio");
     def->category = L("Quality");
-    def->tooltip = L("Decrease this value slightly (for example 0.9) to reduce the amount of material for bridge, to improve sag.\n\n"
+    def->tooltip = L("Adjusts the volume of material for external bridge lines, changing their diameter and the bridge's overall thickness.\n\n "
+                     "External bridges are visible external bottom surfaces of the printed model. Decrease this value slightly (for example 0.9) "
+                     "for thinner external bridges which can reduce sag.\n\n"
+                     "With thick bridges set, flow sets the bridge line circular cross-section area as a multiple of the nozzle area, and doesn't "
+                     "change the bridge density.\n\n"
+                     "Without thick bridges set, this adjusts the internal solid infill flow used for bridges, which mostly adjusts the bridge "
+                     "thickness, but can also result in changes to the density, and the thickness also depends on the layer height, internal solid "
+                     "infill line width, and bridge density settings.\n\n"
                      "The actual bridge flow used is calculated by multiplying this value with the filament flow ratio, and if set, the object's flow ratio.");
     def->min = 0;
     def->max = 2.0;
@@ -1220,8 +1235,16 @@ void PrintConfigDef::init_fff_params()
     def = this->add("internal_bridge_flow", coFloat);
     def->label = L("Internal bridge flow ratio");
     def->category = L("Quality");
-    def->tooltip = L("This value governs the thickness of the internal bridge layer. This is the first layer over sparse infill. Decrease this value slightly (for example 0.9) to improve surface quality over sparse infill."
-                     "\n\nThe actual internal bridge flow used is calculated by multiplying this value with the bridge flow ratio, the filament flow ratio, and if set, the object's flow ratio.");
+    def->tooltip = L("Adjusts the volume of material for internal bridge lines, changing their diameter and the bridge's overall thickness.\n\n"
+                     "Internal bridges are the first layer over sparse infill that support top-shell layers above. Decrease this value slightly "
+                     "(for example 0.9) for thinner internal bridges that can improve the quality of external top-surfaces over sparse infill.\n\n"
+                     "With thick bridges set, flow sets the bridge line circular cross-section area as a multiple of the nozzle area, and doesn't "
+                     "change the bridge density.\n\n"
+                     "Without thick bridges set, this adjusts the internal solid infill flow used for bridges, which mostly adjusts the bridge "
+                     "thickness, but can also changes the density, and the thickness also depends on the layer height, internal solid infill line "
+                     "width, and bridge density settings.\n\n"
+                     "The actual internal bridge flow used is calculated by multiplying this value with the bridge flow ratio, the filament flow "
+                     "ratio, and if set, the object's flow ratio.");
     def->min = 0;
     def->max = 2.0;
     def->mode = comAdvanced;
@@ -1768,16 +1791,30 @@ void PrintConfigDef::init_fff_params()
     def = this->add("thick_bridges", coBool);
     def->label = L("Thick external bridges");
     def->category = L("Quality");
-    def->tooltip = L("If enabled, bridges are more reliable, can bridge longer distances, but may look worse. "
-        "If disabled, bridges look better but are reliable just for shorter bridged distances.");
+    def->tooltip = L("If enabled use a circular cross-section bridge extrusion model for external bridges instead of the normal line extrusion model.\n\n"
+                     "The bridge extrusion model matches the geometry of bridge lines better, and means the bridge flow setting sets the bridge diameter "
+                     "without affecting the density, the bridge density setting sets the density without affecting the diameter, and diameter and density are "
+                     "both independent of the layer height.\n\n"
+                     "The line extrusion model matches normal lines well, but for bridges means the layer height, solid internal infill line width, bridge flow, "
+                     "and bridge density settings interact in complicated ways that affect the bridge line geometry in hard to predict ways.\n\n"
+                     "External bridges are thicker by default with this enabled, but can be adjusted to any thickness with the bridge flow setting. It is "
+                     "recommended to have this feature turned on, but consider reducing the bridge flow for thinner bridges, particularly if you are using "
+                     "large nozzles.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
     def = this->add("thick_internal_bridges", coBool);
     def->label = L("Thick internal bridges");
     def->category = L("Quality");
-    def->tooltip  = L("If enabled, thick internal bridges will be used. It's usually recommended to have this feature turned on. However, "
-                       "consider turning it off if you are using large nozzles.");
+    def->tooltip  = L("If enabled use a circular cross-section bridge extrusion model for internal bridges instead of the normal line extrusion model.\n\n"
+                      "The bridge extrusion model matches the geometry of bridge lines better, and means the bridge flow setting sets the bridge diameter "
+                      "without affecting the density, the bridge density setting sets the density without affecting the diameter, and diameter and density are "
+                      "both independent of the layer height.\n\n"
+                      "The line extrusion model matches normal lines well, but for bridges means the layer height, solid internal infill line width, bridge flow, "
+                      "and bridge density settings interact in complicated ways that affect the bridge line geometry in hard to predict ways.\n\n"
+                      "Internal bridges are thicker by default with this enabled, but can be adjusted to any thickness with the bridge flow settings. It is "
+                      "recommended to have this feature turned on, but consider reducing the bridge flow for thinner bridges, particularly if you are using "
+                      "large nozzles.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
     
