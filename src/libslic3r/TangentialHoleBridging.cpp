@@ -141,10 +141,7 @@ void TangentialHoleBridging::apply(PrintObject* object)
                         };
                         s_right.rotate(bridge_angle, center);
                         
-                        raw_struts_n2.push_back(s_left);
-                        raw_struts_n2.push_back(s_right);
-
-                        // Strut Bottom (horizontal in rotated space) -> Layer N-1
+                        // Strut Bottom (horizontal in rotated space) -> normally Layer N-1
                         Polygon s_bottom;
                         s_bottom.points = {
                             Point(r_left_x,  rot_inner_bbox.min.y() - strut_w),
@@ -154,7 +151,7 @@ void TangentialHoleBridging::apply(PrintObject* object)
                         };
                         s_bottom.rotate(bridge_angle, center);
 
-                        // Strut Top (horizontal in rotated space) -> Layer N-1
+                        // Strut Top (horizontal in rotated space) -> normally Layer N-1
                         Polygon s_top;
                         s_top.points = {
                             Point(r_left_x,  rot_inner_bbox.max.y()),
@@ -164,8 +161,30 @@ void TangentialHoleBridging::apply(PrintObject* object)
                         };
                         s_top.rotate(bridge_angle, center);
 
-                        raw_struts_n1.push_back(s_bottom);
-                        raw_struts_n1.push_back(s_top);
+                        Polygons s_A = {s_left, s_right};
+                        Polygons s_B = {s_bottom, s_top};
+
+                        Polygons anchors_n2 = to_polygons(layer_n2->lslices);
+                        double area_A = 0;
+                        for (const Polygon& p : intersection(s_A, anchors_n2)) {
+                            area_A += std::abs(p.area());
+                        }
+                        
+                        double area_B = 0;
+                        for (const Polygon& p : intersection(s_B, anchors_n2)) {
+                            area_B += std::abs(p.area());
+                        }
+
+                        // ORCA: If the default first layer (A) has significantly less anchoring 
+                        // than the second layer (B), swap them. This ensures the first printed 
+                        // struts are securely anchored to the walls (especially useful for custom modifiers).
+                        if (area_A < area_B * 0.5) {
+                            for (const Polygon& p : s_B) raw_struts_n2.push_back(p);
+                            for (const Polygon& p : s_A) raw_struts_n1.push_back(p);
+                        } else {
+                            for (const Polygon& p : s_A) raw_struts_n2.push_back(p);
+                            for (const Polygon& p : s_B) raw_struts_n1.push_back(p);
+                        }
                     } else {
                         // SMALL LIP: Original axis-aligned behavior for solid filling
                         coord_t l_x = bbox.min.x() - margin;
