@@ -4,6 +4,7 @@
 #include "Layer.hpp"
 #include "ClipperUtils.hpp"
 #include "BridgeDetector.hpp"
+#include "Flow.hpp"
 
 namespace Slic3r {
 
@@ -86,7 +87,23 @@ void TangentialHoleBridging::apply(PrintObject* object)
 
                     int wall_loops = object->printing_region(region_id).config().wall_loops.value;
                     if (wall_loops <= 0) wall_loops = 2;
-                    coord_t strut_w = scale_(nozzle_diameter * 1.125 * wall_loops);
+                    
+                    // ORCA: Ensure even number of wall loops for normal holes to improve anchor points
+                    if (!is_small_lip && wall_loops % 2 != 0) {
+                        wall_loops += 1;
+                    }
+                    
+                    // ORCA: Compute strut width properly using actual configured wall line widths.
+                    // The bridging strut has empty space on BOTH its left and right sides (the small hole and the rest of the large hole gap).
+                    // Therefore, it will be traced with outer loops on both sides. We need width for 2 outer walls + (wall_loops - 2) inner walls.
+                    const auto &reg_config = object->printing_region(region_id).config();
+                    Flow outer_flow = Flow::new_from_config_width(frExternalPerimeter, reg_config.outer_wall_line_width, nozzle_diameter, layer_n1->height);
+                    Flow inner_flow = Flow::new_from_config_width(frPerimeter, reg_config.inner_wall_line_width, nozzle_diameter, layer_n1->height);
+                    
+                    coord_t strut_w = outer_flow.scaled_width();
+                    if (wall_loops > 1) {
+                        strut_w = 2 * outer_flow.scaled_width() + inner_flow.scaled_spacing() * (wall_loops - 2);
+                    }
 
                     if (!is_small_lip) {
                         // LARGE HOLE: Generate rotated '#' struts aligned with the bridge angle
@@ -176,6 +193,7 @@ void TangentialHoleBridging::apply(PrintObject* object)
                         s_right_n1.points = { Point(inner_bbox.max.x(), b_y), Point(inner_bbox.max.x() + strut_w, b_y), Point(inner_bbox.max.x() + strut_w, t_y), Point(inner_bbox.max.x(), t_y) };
                         raw_struts_n1.push_back(s_left_n1);
                         raw_struts_n1.push_back(s_right_n1);
+                        
                     }
                 }
 
