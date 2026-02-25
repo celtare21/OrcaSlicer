@@ -8,7 +8,6 @@
 #include "BoundingBox.hpp"
 #include "SVG.hpp"
 #include "Algorithm/RegionExpansion.hpp"
-#include "TangentialHoleBridging.hpp"
 
 #include <string>
 #include <map>
@@ -122,10 +121,7 @@ void LayerRegion::make_perimeters(const SurfaceCollection &slices, const LayerRe
         g.process_arachne();
     else
         g.process_classic();
-
-
 }
-
 
 #if 1
 
