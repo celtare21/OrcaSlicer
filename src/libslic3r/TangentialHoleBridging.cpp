@@ -3,6 +3,7 @@
 #include "Print.hpp"
 #include "Layer.hpp"
 #include "ClipperUtils.hpp"
+#include "BridgeDetector.hpp"
 
 namespace Slic3r {
 
@@ -39,6 +40,8 @@ void TangentialHoleBridging::apply(PrintObject* object)
             ExPolygons unsupported = diff_ex(region_n->slices.surfaces, layer_n1->lslices, ApplySafetyOffset::Yes);
             if (unsupported.empty()) continue;
 
+            const coord_t max_lip = scale_(8.0);
+
             for (const ExPolygon& poly_unsupp : unsupported) {
                 // A counterbore overhang must have a hole in the middle (it's a ring or a bridge with holes)
                 if (poly_unsupp.holes.empty()) {
@@ -59,18 +62,21 @@ void TangentialHoleBridging::apply(PrintObject* object)
                 Polygons raw_struts_n1;
                 Polygons raw_struts_n2;
 
+                // ORCA: Detect the bridging direction for the entire unsupported area.
+                // This ensures all holes in the same bridge use a consistent and optimal angle.
+                BridgeDetector bd(poly_unsupp, layer_n1->lslices, scale_(nozzle_diameter));
+                bd.detect_angle();
+                double bridge_angle = bd.angle;
+                
+                // Snap to 90-degree increments to avoid noisy angles on axis-aligned models
+                double snap_tol = Geometry::deg2rad(3.0);
+                if (std::abs(bridge_angle) < snap_tol || std::abs(bridge_angle - PI) < snap_tol || std::abs(bridge_angle - 2.0*PI) < snap_tol) bridge_angle = 0.0;
+                else if (std::abs(bridge_angle - PI/2.0) < snap_tol || std::abs(bridge_angle - 1.5*PI) < snap_tol) bridge_angle = PI/2.0;
+
                 // ORCA: Process ALL holes instead of just the largest one
-                // This allows bridging areas with multiple holes to be supported properly.
                 for (const Polygon& hole : poly_unsupp.holes) {
                     BoundingBox inner_bbox = get_extents(hole);
 
-                    // ORCA: Check the distance from the hole to the bounding box of the unsupported area.
-                    // If the distance is small (e.g. <= 8mm), it's a counterbore lip, so we fill the entire space
-                    // to the contour to make a solid block (user preferred behavior).
-                    // If the distance is large (e.g. a normal hole in a large bridge contour), we generate thin tangential
-                    // struts of fixed width (strut_w) to provide a solid crossing for native wall_loops, without filling the whole void.
-                    const coord_t max_lip = scale_(8.0);
-                    
                     coord_t dist_left   = inner_bbox.min.x() - bbox.min.x();
                     coord_t dist_right  = bbox.max.x() - inner_bbox.max.x();
                     coord_t dist_bottom = inner_bbox.min.y() - bbox.min.y();
@@ -78,151 +84,116 @@ void TangentialHoleBridging::apply(PrintObject* object)
 
                     bool is_small_lip = (dist_left <= max_lip && dist_right <= max_lip && dist_bottom <= max_lip && dist_top <= max_lip);
 
-                    // ORCA: Dynamically calculate strut width based on configured wall_loops
                     int wall_loops = object->printing_region(region_id).config().wall_loops.value;
-                    if (wall_loops <= 0) wall_loops = 2; // Fallback if 0 perimeters are configured
-                    
-                    // Width is roughly loops * nozzle_diameter * 1.125 (flow magic)
+                    if (wall_loops <= 0) wall_loops = 2;
                     coord_t strut_w = scale_(nozzle_diameter * 1.125 * wall_loops);
 
-                    coord_t left_x   = bbox.min.x() - margin;
-                    coord_t right_x  = bbox.max.x() + margin;
-                    coord_t bottom_y = bbox.min.y() - margin;
-                    coord_t top_y    = bbox.max.y() + margin;
-
-                    // If it is a large hole, we need a cross over N-1 and N-2. 
-                    // To prevent mid-air collisions, put X-struts on N-1 and Y-struts on N-2.
                     if (!is_small_lip) {
-                        // Strut Left (Y direction) - for N-2
-                        Polygon strut_left;
-                        strut_left.points = {
-                            Point(inner_bbox.min.x() - strut_w, bottom_y),
-                            Point(inner_bbox.min.x(),           bottom_y),
-                            Point(inner_bbox.min.x(),           top_y),
-                            Point(inner_bbox.min.x() - strut_w, top_y)
-                        };
+                        // LARGE HOLE: Generate rotated '#' struts aligned with the bridge angle
+                        Point center = inner_bbox.center();
+                        Polygon rotated_hole = hole;
+                        rotated_hole.rotate(-bridge_angle, center);
+                        BoundingBox rot_inner_bbox = get_extents(rotated_hole);
                         
-                        // Strut Right (Y direction) - for N-2
-                        Polygon strut_right;
-                        strut_right.points = {
-                            Point(inner_bbox.max.x(),           bottom_y),
-                            Point(inner_bbox.max.x() + strut_w, bottom_y),
-                            Point(inner_bbox.max.x() + strut_w, top_y),
-                            Point(inner_bbox.max.x(),           top_y)
-                        };
-                        raw_struts_n2.push_back(strut_left);
-                        raw_struts_n2.push_back(strut_right);
-                    } else {
-                        // Small lip - solid base on N-2
-                        Polygon strut_left;
-                        strut_left.points = {
-                            Point(left_x,             bbox.min.y() - margin),
-                            Point(inner_bbox.min.x(), bbox.min.y() - margin),
-                            Point(inner_bbox.min.x(), bbox.max.y() + margin),
-                            Point(left_x,             bbox.max.y() + margin)
-                        };
-                        
-                        Polygon strut_right;
-                        strut_right.points = {
-                            Point(inner_bbox.max.x(), bbox.min.y() - margin),
-                            Point(right_x,            bbox.min.y() - margin),
-                            Point(right_x,            bbox.max.y() + margin),
-                            Point(inner_bbox.max.x(), bbox.max.y() + margin)
-                        };
-                        raw_struts_n2.push_back(strut_left);
-                        raw_struts_n2.push_back(strut_right);
-                    }
+                        Polygon rotated_contour = poly_unsupp.contour;
+                        rotated_contour.rotate(-bridge_angle, center);
+                        BoundingBox rot_bbox = get_extents(rotated_contour);
 
-                    // Strut Bottom (X direction) - for N-1
-                    Polygon strut_bottom;
-                    if (is_small_lip) {
-                        strut_bottom.points = {
-                            Point(left_x, bottom_y),
-                            Point(right_x, bottom_y),
-                            Point(right_x, inner_bbox.min.y()),
-                            Point(left_x, inner_bbox.min.y())
-                        };
-                    } else {
-                        strut_bottom.points = {
-                            Point(left_x, inner_bbox.min.y() - strut_w),
-                            Point(right_x, inner_bbox.min.y() - strut_w),
-                            Point(right_x, inner_bbox.min.y()),
-                            Point(left_x, inner_bbox.min.y())
-                        };
-                    }
+                        coord_t r_left_x   = rot_bbox.min.x() - margin;
+                        coord_t r_right_x  = rot_bbox.max.x() + margin;
+                        coord_t r_bottom_y = rot_bbox.min.y() - margin;
+                        coord_t r_top_y    = rot_bbox.max.y() + margin;
 
-                    // Strut Top (X direction) - for N-1
-                    Polygon strut_top;
-                    if (is_small_lip) {
-                        strut_top.points = {
-                            Point(left_x, inner_bbox.max.y()),
-                            Point(right_x, inner_bbox.max.y()),
-                            Point(right_x, top_y),
-                            Point(left_x, top_y)
+                        // Strut Left (vertical in rotated space) -> Layer N-2
+                        Polygon s_left;
+                        s_left.points = {
+                            Point(rot_inner_bbox.min.x() - strut_w, r_bottom_y),
+                            Point(rot_inner_bbox.min.x(),           r_bottom_y),
+                            Point(rot_inner_bbox.min.x(),           r_top_y),
+                            Point(rot_inner_bbox.min.x() - strut_w, r_top_y)
                         };
-                    } else {
-                        strut_top.points = {
-                            Point(left_x, inner_bbox.max.y()),
-                            Point(right_x, inner_bbox.max.y()),
-                            Point(right_x, inner_bbox.max.y() + strut_w),
-                            Point(left_x, inner_bbox.max.y() + strut_w)
+                        s_left.rotate(bridge_angle, center);
+                        
+                        // Strut Right (vertical in rotated space) -> Layer N-2
+                        Polygon s_right;
+                        s_right.points = {
+                            Point(rot_inner_bbox.max.x(),           r_bottom_y),
+                            Point(rot_inner_bbox.max.x() + strut_w, r_bottom_y),
+                            Point(rot_inner_bbox.max.x() + strut_w, r_top_y),
+                            Point(rot_inner_bbox.max.x(),           r_top_y)
                         };
-                    }
+                        s_right.rotate(bridge_angle, center);
+                        
+                        raw_struts_n2.push_back(s_left);
+                        raw_struts_n2.push_back(s_right);
 
-                    // For small lips, we use all four sides to make a solid anchor.
-                    // For large holes, we put X on N-1 and Y on N-2 to create a structural cross without layer intersections.
-                    if (is_small_lip) {
-                        raw_struts_n1.push_back(strut_bottom);
-                        raw_struts_n1.push_back(strut_top);
-                        
-                        Polygon strut_left;
-                        strut_left.points = {
-                            Point(inner_bbox.min.x() - strut_w, bottom_y),
-                            Point(inner_bbox.min.x(), bottom_y),
-                            Point(inner_bbox.min.x(), top_y),
-                            Point(inner_bbox.min.x() - strut_w, top_y)
+                        // Strut Bottom (horizontal in rotated space) -> Layer N-1
+                        Polygon s_bottom;
+                        s_bottom.points = {
+                            Point(r_left_x,  rot_inner_bbox.min.y() - strut_w),
+                            Point(r_right_x, rot_inner_bbox.min.y() - strut_w),
+                            Point(r_right_x, rot_inner_bbox.min.y()),
+                            Point(r_left_x,  rot_inner_bbox.min.y())
                         };
-                        
-                        Polygon strut_right;
-                        strut_right.points = {
-                            Point(inner_bbox.max.x(), bottom_y),
-                            Point(inner_bbox.max.x() + strut_w, bottom_y),
-                            Point(inner_bbox.max.x() + strut_w, top_y),
-                            Point(inner_bbox.max.x(), top_y)
+                        s_bottom.rotate(bridge_angle, center);
+
+                        // Strut Top (horizontal in rotated space) -> Layer N-1
+                        Polygon s_top;
+                        s_top.points = {
+                            Point(r_left_x,  rot_inner_bbox.max.y()),
+                            Point(r_right_x, rot_inner_bbox.max.y()),
+                            Point(r_right_x, rot_inner_bbox.max.y() + strut_w),
+                            Point(r_left_x,  rot_inner_bbox.max.y() + strut_w)
                         };
-                        raw_struts_n1.push_back(strut_left);
-                        raw_struts_n1.push_back(strut_right);
+                        s_top.rotate(bridge_angle, center);
+
+                        raw_struts_n1.push_back(s_bottom);
+                        raw_struts_n1.push_back(s_top);
                     } else {
-                        // Large hole: X direction on N-1
-                        raw_struts_n1.push_back(strut_bottom);
-                        raw_struts_n1.push_back(strut_top);
+                        // SMALL LIP: Original axis-aligned behavior for solid filling
+                        coord_t l_x = bbox.min.x() - margin;
+                        coord_t r_x = bbox.max.x() + margin;
+                        coord_t b_y = bbox.min.y() - margin;
+                        coord_t t_y = bbox.max.y() + margin;
+
+                        Polygon s_left;
+                        s_left.points = { Point(l_x, b_y), Point(inner_bbox.min.x(), b_y), Point(inner_bbox.min.x(), t_y), Point(l_x, t_y) };
+                        Polygon s_right;
+                        s_right.points = { Point(inner_bbox.max.x(), b_y), Point(r_x, b_y), Point(r_x, t_y), Point(inner_bbox.max.x(), t_y) };
+                        raw_struts_n2.push_back(s_left);
+                        raw_struts_n2.push_back(s_right);
+
+                        Polygon s_bottom;
+                        s_bottom.points = { Point(l_x, b_y), Point(r_x, b_y), Point(r_x, inner_bbox.min.y()), Point(l_x, inner_bbox.min.y()) };
+                        Polygon s_top;
+                        s_top.points = { Point(l_x, inner_bbox.max.y()), Point(r_x, inner_bbox.max.y()), Point(r_x, t_y), Point(l_x, t_y) };
+                        raw_struts_n1.push_back(s_bottom);
+                        raw_struts_n1.push_back(s_top);
+                        
+                        Polygon s_left_n1;
+                        s_left_n1.points = { Point(inner_bbox.min.x() - strut_w, b_y), Point(inner_bbox.min.x(), b_y), Point(inner_bbox.min.x(), t_y), Point(inner_bbox.min.x() - strut_w, t_y) };
+                        Polygon s_right_n1;
+                        s_right_n1.points = { Point(inner_bbox.max.x(), b_y), Point(inner_bbox.max.x() + strut_w, b_y), Point(inner_bbox.max.x() + strut_w, t_y), Point(inner_bbox.max.x(), t_y) };
+                        raw_struts_n1.push_back(s_left_n1);
+                        raw_struts_n1.push_back(s_right_n1);
                     }
                 }
 
-                // ORCA: Intersect struts with the unsupported area to prevent them from shooting into mid-air
-                // on L-shaped or diagonal bridges, guaranteeing they find an anchor in the surrounding wall.
                 Polygons final_struts_n1 = intersection(raw_struts_n1, contour_bigger);
                 Polygons final_struts_n2 = intersection(raw_struts_n2, contour_bigger);
 
-                // ORCA: Subtract all holes of this unsupported area from the generated struts
-                // so we don't accidentally cover other holes in a multi-hole bridge.
-                // IMPORTANT: For large holes (!is_small_lip), we do NOT subtract the hole itself,
-                // because we WANT our narrow strut to pass perfectly straight THROUGH the hole space,
-                // without curving around its boundaries. (This prevents "curving in the air").
                 Polygons all_holes_small_lips;
                 for (const Polygon& hole : poly_unsupp.holes) {
-                    BoundingBox inner_bbox = get_extents(hole);
-                    coord_t dist_left   = inner_bbox.min.x() - bbox.min.x();
-                    coord_t dist_right  = bbox.max.x() - inner_bbox.max.x();
-                    coord_t dist_bottom = inner_bbox.min.y() - bbox.min.y();
-                    coord_t dist_top    = bbox.max.y() - inner_bbox.max.y();
-                    const coord_t max_lip = scale_(8.0);
-                    if (dist_left <= max_lip && dist_right <= max_lip && dist_bottom <= max_lip && dist_top <= max_lip) {
+                    BoundingBox h_bbox = get_extents(hole);
+                    coord_t d_l = h_bbox.min.x() - bbox.min.x();
+                    coord_t d_r = bbox.max.x() - h_bbox.max.x();
+                    coord_t d_b = h_bbox.min.y() - bbox.min.y();
+                    coord_t d_t = bbox.max.y() - h_bbox.max.y();
+                    if (d_l <= max_lip && d_r <= max_lip && d_b <= max_lip && d_t <= max_lip) {
                         all_holes_small_lips.push_back(hole);
                     }
                 }
 
-                // Normal subtraction for small lips where we fill the volume completely
                 if (!all_holes_small_lips.empty()) {
                     final_struts_n1 = diff(final_struts_n1, all_holes_small_lips);
                     final_struts_n2 = diff(final_struts_n2, all_holes_small_lips);
@@ -230,54 +201,41 @@ void TangentialHoleBridging::apply(PrintObject* object)
 
                 if (final_struts_n1.empty() && final_struts_n2.empty()) continue;
 
-                // Add to lslices (overall layer boundary)
                 layer_n2->lslices = union_ex(layer_n2->lslices, final_struts_n2);
                 layer_n1->lslices = union_ex(layer_n1->lslices, final_struts_n1);
                 
-                // --- INTEGRATE INTO LAYER N-1 ---
                 if (!layer_n1->regions().empty() && !final_struts_n1.empty()) {
-                    // Subtract struts from all OTHER regions to prevent multicolor overlap
                     for (size_t r = 0; r < layer_n1->regions().size(); ++r) {
                         if (r == region_id) continue;
                         LayerRegion* other_region = layer_n1->get_region(r);
                         if (!other_region || other_region->slices.empty()) continue;
-                        ExPolygons cut_polys = diff_ex(other_region->slices.surfaces, final_struts_n1);
-                        other_region->slices.set(cut_polys, stInternal);
+                        other_region->slices.set(diff_ex(other_region->slices.surfaces, final_struts_n1), stInternal);
                     }
-
-                    // Add struts specifically to the correct region
                     LayerRegion* target_region = layer_n1->get_region(region_id);
                     if (target_region) {
-                        Polygons polys_1 = to_polygons(target_region->slices.surfaces);
-                        for (const Polygon& p : final_struts_n1) polys_1.push_back(p);
-                        target_region->slices.set(union_ex(polys_1), stInternal);
+                        Polygons p1 = to_polygons(target_region->slices.surfaces);
+                        for (const Polygon& p : final_struts_n1) p1.push_back(p);
+                        target_region->slices.set(union_ex(p1), stInternal);
                     }
                 }
                 
-                // --- INTEGRATE INTO LAYER N-2 ---
                 if (!layer_n2->regions().empty() && !final_struts_n2.empty()) {
-                    // Subtract struts from all OTHER regions to prevent multicolor overlap
                     for (size_t r = 0; r < layer_n2->regions().size(); ++r) {
                         if (r == region_id) continue;
                         LayerRegion* other_region = layer_n2->get_region(r);
                         if (!other_region || other_region->slices.empty()) continue;
-                        ExPolygons cut_polys = diff_ex(other_region->slices.surfaces, final_struts_n2);
-                        other_region->slices.set(cut_polys, stInternal);
+                        other_region->slices.set(diff_ex(other_region->slices.surfaces, final_struts_n2), stInternal);
                     }
-
-                    // Add struts specifically to the correct region
                     LayerRegion* target_region = layer_n2->get_region(region_id);
                     if (target_region) {
-                        Polygons polys_2 = to_polygons(target_region->slices.surfaces);
-                        for (const Polygon& p : final_struts_n2) polys_2.push_back(p);
-                        target_region->slices.set(union_ex(polys_2), stInternal);
+                        Polygons p2 = to_polygons(target_region->slices.surfaces);
+                        for (const Polygon& p : final_struts_n2) p2.push_back(p);
+                        target_region->slices.set(union_ex(p2), stInternal);
                     }
                 }
             }
         }
     }
 }
-
-
 
 } // namespace Slic3r
