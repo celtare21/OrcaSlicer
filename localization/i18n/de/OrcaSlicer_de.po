@@ -15337,8 +15337,11 @@ msgstr "Nur lackiert"
 msgid "Contour"
 msgstr "Kontur"
 
+msgid "Hole"
+msgstr "Loch"
+
 msgid "Contour and hole"
-msgstr "Kontur und Loch"
+msgstr "Kontur und loch"
 
 msgid "All walls"
 msgstr "Alle Wände"
