@@ -15035,6 +15035,9 @@ msgstr "Только покрашенное"
 msgid "Contour"
 msgstr "Контур"
 
+msgid "Hole"
+msgstr "Oтверстия"
+
 msgid "Contour and hole"
 msgstr "Контур и отверстия"
 
