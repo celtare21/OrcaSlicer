@@ -101,6 +101,7 @@ ThumbnailErrors validate_thumbnails_string(wxString& str, const wxString& def_ex
     return errors;
 }
 
+// Orca
 wxString get_formatted_tooltip_text(const ConfigOptionDef& opt, const t_config_option_key& id)
 {
     wxString tooltip = _(opt.tooltip);
@@ -117,20 +118,46 @@ wxString get_formatted_tooltip_text(const ConfigOptionDef& opt, const t_config_o
 
         tooltip += "\n\n" + _(L("parameter name")) + ": " + opt_id;
 
-        if (opt.type == coFloat || opt.type == coInt) {
-            double default_value = 0.;
+        // Orca: 
+        // We can't use Orca's default values as-is because they sometimes depend on other values. 
+        // Parent preset configuration values will be used instead.
+        if (const Preset* print_parent_preset = wxGetApp().preset_bundle->prints.get_selected_preset_parent()) {
+            const DynamicPrintConfig& parent_config = print_parent_preset->config;
 
-            if (opt.type == coFloat)
-                default_value = opt.get_default_value<ConfigOptionFloat>()->value;
-            else if (opt.type == coInt)
-                default_value = opt.get_default_value<ConfigOptionInt>()->value;
+            if (!parent_config.has(opt_id))
+                return tooltip;
 
-            tooltip += "\n\n" + _(L("Default")) + ": " + _(double_to_string(default_value));
+            wxString side_text = !opt.sidetext.empty() ? " (" + from_u8(opt.sidetext) + ")" : "";
 
-            if (opt.min > -FLT_MAX && opt.max < FLT_MAX) {
-                tooltip += "\n" + _(L("Range")) + ": [" + 
-                    _(double_to_string(opt.min)) + ", " + 
-                    _(double_to_string(opt.max)) + "]";
+            if (opt.type == coFloat || opt.type == coInt || opt.type == coPercent || opt.type == coFloatOrPercent) {
+                double default_value = 0.;
+
+                if (opt.type == coFloat)
+                    default_value = parent_config.option<ConfigOptionFloat>(opt_id)->value;
+                else if (opt.type == coInt)
+                    default_value = parent_config.option<ConfigOptionInt>(opt_id)->value;
+                else if (opt.type == coPercent)
+                    default_value = parent_config.option<ConfigOptionPercent>(opt_id)->value;
+                else if (opt.type == coFloatOrPercent)
+                    default_value = parent_config.option<ConfigOptionFloatOrPercent>(opt_id)->value;
+
+                tooltip += "\n\n" + _(L("Default")) + ": " + _(double_to_string(default_value)) + side_text;
+
+                if (opt.min > -FLT_MAX && opt.max < FLT_MAX) {
+                    tooltip += "\n" + _(L("Range")) + ": [" + 
+                        _(double_to_string(opt.min)) + ", " + 
+                        _(double_to_string(opt.max)) + "]";
+                }
+            } else if (opt.type == coBool || opt.type == coString) {
+                std::string default_value = "";
+
+                if (opt.type == coString)
+                    default_value = parent_config.option<ConfigOptionString>(opt_id)->value;
+                else if (opt.type == coBool)
+                    default_value = parent_config.option<ConfigOptionBool>(opt_id)->value ? "true" : "false";
+
+                tooltip += "\n\n" + _(L("Default")) + ": " +
+                    (default_value.empty() ? _(L("Empty string")) : _(default_value) + side_text);
             }
         }
 
