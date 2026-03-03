@@ -1211,7 +1211,7 @@ void PrintConfigDef::init_fff_params()
                      "above, but with too much overlap can cause warping or overextrusion problems.");
     def->sidetext = "%";
     def->min = 10;
-    def->max = 100;
+    def->max = 120;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionPercent(100));
 
