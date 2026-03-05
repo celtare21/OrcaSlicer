@@ -39,7 +39,6 @@ enum GCodeFlavor : unsigned char {
 enum class FuzzySkinType {
     None,
     External,
-    Hole,
     All,
     AllWalls,
     Disabled_fuzzy,

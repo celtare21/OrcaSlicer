@@ -13742,9 +13742,6 @@ msgstr "Alleen geverfd"
 msgid "Contour"
 msgstr ""
 
-msgid "Hole"
-msgstr "Gat"
-
 msgid "Contour and hole"
 msgstr "Contour en gat"
 

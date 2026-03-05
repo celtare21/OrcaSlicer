@@ -14500,9 +14500,6 @@ msgstr "Només pintat"
 msgid "Contour"
 msgstr "Contorn"
 
-msgid "Hole"
-msgstr "Forat"
-
 msgid "Contour and hole"
 msgstr "Contorn i forat"
 

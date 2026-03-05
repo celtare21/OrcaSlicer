@@ -15330,9 +15330,6 @@ msgstr "Pouze natřeno"
 msgid "Contour"
 msgstr "Obrys"
 
-msgid "Hole"
-msgstr "Otvor"
-
 msgid "Contour and hole"
 msgstr "Obrys a otvor"
 

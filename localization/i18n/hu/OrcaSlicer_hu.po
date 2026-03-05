@@ -13582,9 +13582,6 @@ msgstr "Csak festett"
 msgid "Contour"
 msgstr "Kontúr"
 
-msgid "Hole"
-msgstr "Lyuk"
-
 msgid "Contour and hole"
 msgstr "Kontúr és lyuk"
 

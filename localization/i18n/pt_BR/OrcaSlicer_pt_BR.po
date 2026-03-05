@@ -15040,9 +15040,6 @@ msgstr "Somente pintado"
 msgid "Contour"
 msgstr "Contorno"
 
-msgid "Hole"
-msgstr "Furo"
-
 msgid "Contour and hole"
 msgstr "Contorno e furo"
 
