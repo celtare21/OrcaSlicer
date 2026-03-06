@@ -730,24 +730,6 @@ void print_region_ref_inc(PrintRegion &r) { ++ r.m_ref_cnt; }
 void print_region_ref_reset(PrintRegion &r) { r.m_ref_cnt = 0; }
 int  print_region_ref_cnt(const PrintRegion &r) { return r.m_ref_cnt; }
 
-// Set the painted region's fuzzy type to the complement of the base type so
-// painting only adds what the base type doesn't already cover. If the base
-// already covers all fuzzy cases, preserve it so the painted region can merge
-// back into the parent region and be ignored.
-static void set_painted_fuzzy_type(PrintRegionConfig &cfg)
-{
-    switch (cfg.fuzzy_skin.value) {
-    case FuzzySkinType::External:       cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
-    case FuzzySkinType::Hole:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
-    case FuzzySkinType::None:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
-    case FuzzySkinType::All:
-    case FuzzySkinType::AllWalls:
-        break;
-    default:
-        break; // Disabled_fuzzy
-    }
-}
-
 // Verify whether the PrintRegions of a PrintObject are still valid, possibly after updating the region configs.
 // Before region configs are updated, callback_invalidate() is called to possibly stop background processing.
 // Returns false if this object needs to be resliced because regions were merged or split.
@@ -857,7 +839,20 @@ bool verify_update_print_object_regions(
         for (const PrintObjectRegions::FuzzySkinPaintedRegion &region : layer_range.fuzzy_skin_painted_regions) {
             const PrintRegion &parent_print_region = *region.parent_print_object_region(layer_range);
             PrintRegionConfig  cfg                 = parent_print_region.config();
-            set_painted_fuzzy_type(cfg);
+            // Set the painted region's fuzzy type to the complement of the base type
+            // so that painting only adds what the base type doesn't already cover,
+            // avoiding double application at region boundaries.
+            switch (cfg.fuzzy_skin.value) {
+            case FuzzySkinType::External:       cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+            case FuzzySkinType::Hole:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+            case FuzzySkinType::None:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+            case FuzzySkinType::All:
+            case FuzzySkinType::AllWalls:
+                // Base already covers everything; keep same type so configs merge
+                // and the painted region is effectively ignored.
+                break;
+            default: break; // Disabled_fuzzy: no change, region will be skipped
+            }
             if (cfg != region.region->config()) {
                 // Region configuration changed.
                 if (print_region_ref_cnt(*region.region) == 0) {
@@ -1096,6 +1091,21 @@ static PrintObjectRegions* generate_print_object_regions(
         for (PrintObjectRegions::LayerRangeRegions &layer_range : layer_ranges_regions) {
             // FuzzySkinPaintedRegion can override different parts of the Layer than PaintedRegions,
             // so FuzzySkinPaintedRegion has to point to both VolumeRegion and PaintedRegion.
+            // Helper: set painted region's fuzzy type to the complement of the base type
+            // so that painting only adds what the base doesn't already cover.
+            auto set_painted_fuzzy_type = [](PrintRegionConfig &cfg) {
+                switch (cfg.fuzzy_skin.value) {
+                case FuzzySkinType::External:       cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+                case FuzzySkinType::Hole:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+                case FuzzySkinType::None:           cfg.fuzzy_skin.value = FuzzySkinType::All;       break;
+                case FuzzySkinType::All:
+                case FuzzySkinType::AllWalls:
+                    // Base already covers everything; keep same type so configs merge
+                    // and the painted region is effectively ignored.
+                    break;
+                default: break; // Disabled_fuzzy
+                }
+            };
 
             for (int parent_volume_region_id = 0; parent_volume_region_id < int(layer_range.volume_regions.size()); ++parent_volume_region_id) {
                 if (const PrintObjectRegions::VolumeRegion &parent_volume_region = layer_range.volume_regions[parent_volume_region_id]; parent_volume_region.model_volume->is_model_part() || parent_volume_region.model_volume->is_modifier()) {
