@@ -15233,6 +15233,9 @@ msgstr "Вручную"
 msgid "Contour"
 msgstr "Контур"
 
+msgid "Hole"
+msgstr "Отверстия"
+
 msgid "Contour and hole"
 msgstr "Контур и отверстия"
 
