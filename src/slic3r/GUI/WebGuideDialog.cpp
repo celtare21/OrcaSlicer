@@ -7,6 +7,7 @@
 #include <string.h>
 #include "I18N.hpp"
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Config.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "slic3r/GUI/wxExtensions.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
@@ -83,7 +84,7 @@ static wxString update_custom_filaments()
         if (not_need_show) continue;
         if (!filament_name.empty()) {
             if (filament_with_base_id) {
-                need_sort.push_back(std::make_pair("[Action Required] " + filament_name, filament_id));
+                need_sort.push_back(std::make_pair(into_u8(_L("[Action Required] ")) + filament_name, filament_id));
             } else {
 
                 need_sort.push_back(std::make_pair(filament_name, filament_id));
@@ -92,7 +93,7 @@ static wxString update_custom_filaments()
     }
     std::sort(need_sort.begin(), need_sort.end(), [](const std::pair<std::string, std::string> &a, const std::pair<std::string, std::string> &b) { return a.first < b.first; });
     if (need_delete_some_filament) {
-        need_sort.push_back(std::make_pair("[Action Required]", "null"));
+        need_sort.push_back(std::make_pair(into_u8(_L("[Action Required]")), "null"));
     }
     json temp_j;
     for (std::pair<std::string, std::string> &filament_name_to_id : need_sort) {
@@ -437,7 +438,51 @@ void GuideFrame::OnScriptMessage(wxWebViewEvent &evt)
                     wxString s1 = TmpModel["model"];
                     wxString s2 = OneSelect["model"];
                     if (s1.compare(s2) == 0) {
-                        m_ProfileJson["model"][m]["nozzle_selected"] = OneSelect["nozzle_diameter"];
+                        m_ProfileJson["model"][m]["nozzle_selected"] = m_ProfileJson["model"][m]["nozzle_diameter"];
+
+                        // Automatically select default materials for this printer model
+                        // This mirrors the behavior of the old ConfigWizard::select_default_materials_for_printer_model()
+                        if (TmpModel.contains("materials") && !TmpModel["materials"].is_null()) {
+                            std::string materials_str;
+
+                            // Handle both string and JSON array formats for materials
+                            if (TmpModel["materials"].is_string()) {
+                                materials_str = TmpModel["materials"].get<std::string>();
+                            } else if (TmpModel["materials"].is_array()) {
+                                // Convert JSON array to semicolon-separated string for unescape_strings_cstyle
+                                for (const auto& material : TmpModel["materials"]) {
+                                    if (!materials_str.empty()) materials_str += ";";
+                                    materials_str += material.get<std::string>();
+                                }
+                            } else {
+                                materials_str = "";
+                            }
+
+                            boost::trim(materials_str);
+                            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " Processing default_materials for printer: " << s1.ToStdString() << " - materials: " << materials_str;
+
+                            // Use the same parsing logic as ConfigWizard::select_default_materials_for_printer_model()
+                            // This calls unescape_strings_cstyle() just like Preset.cpp:298 does
+                            std::vector<std::string> materials;
+                            if (Slic3r::unescape_strings_cstyle(materials_str, materials)) {
+                                for (const std::string& material : materials) {
+                                    if (!material.empty()) {
+                                        // Mark this filament as selected if it exists in our filament list
+                                        // This mirrors appconfig_new.set(section, material, "true") from ConfigWizard.cpp:2150
+                                        if (m_ProfileJson["filament"].contains(material)) {
+                                            m_ProfileJson["filament"][material]["selected"] = 1;
+                                            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " Automatically selected default filament: " << material;
+                                        } else {
+                                            BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " Default filament '" << material << "' not found in available filaments for printer: " << s1.ToStdString();
+                                        }
+                                    }
+                                }
+                            } else {
+                                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " Malformed default_materials field: " << materials_str << " for printer: " << s1.ToStdString();
+                            }
+                        } else {
+                            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " No default_materials defined for printer: " << s1.ToStdString();
+                        }
                         break;
                     }
                 }
@@ -517,7 +562,7 @@ void GuideFrame::OnScriptMessage(wxWebViewEvent &evt)
         BOOST_LOG_TRIVIAL(trace) << "GuideFrame::OnScriptMessage;Error:" << e.what();
     }
 
-    //wxString strAll = m_ProfileJson.dump(-1,' ',false, json::error_handler_t::ignore);
+    wxString strAll = m_ProfileJson.dump(-1,' ',false, json::error_handler_t::ignore);
 }
 
 void GuideFrame::RunScript(const wxString &javascript)
@@ -776,11 +821,26 @@ bool GuideFrame::apply_config(AppConfig *app_config, PresetBundle *preset_bundle
         if (config == enabled_vendors.end())
             return std::string();
 
+        const VendorProfile & printer_profile = preset_bundle->vendors[bundle_name];
         const std::map<std::string, std::set<std::string>>& model_maps = config->second;
         //for (const auto& vendor_profile : preset_bundle->vendors) {
         for (const auto& model_it: model_maps) {
             if (model_it.second.size() > 0) {
                 variant = *model_it.second.begin();
+                if (model_it.second.size() > 1) {
+                    if (printer_profile.models.size() > 0) {
+                        const VendorProfile::PrinterModel& printer_model = *std::find_if(printer_profile.models.begin(), printer_profile.models.end(),
+                            [id = model_it.first](auto& m) { return m.id == id; });
+                        for (auto& vt : printer_model.variants) {
+                            if (std::find(model_it.second.begin(), model_it.second.end(), vt.name) != model_it.second.end()) { variant = vt.name; break; }
+                        }
+                    }
+                    else if (variant != PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT){
+                        if (std::find(model_it.second.begin(), model_it.second.end(), PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT) != model_it.second.end())
+                            variant = PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT;
+                    }
+                }
+
                 const auto config_old = old_enabled_vendors.find(bundle_name);
                 if (config_old == old_enabled_vendors.end())
                     return model_it.first;
@@ -830,6 +890,22 @@ bool GuideFrame::apply_config(AppConfig *app_config, PresetBundle *preset_bundle
     if (check_unsaved_preset_changes)
         preset_bundle->load_presets(*app_config, ForwardCompatibilitySubstitutionRule::Enable,
                                     {preferred_model, preferred_variant, first_added_filament, std::string()});
+
+    // If the active filament is not in the wizard-selected filaments, switch to the first
+    // compatible wizard-selected filament. This handles the first-run case where load_presets
+    // falls back to "Generic PLA" even though the user selected a different filament.
+    bool active_filament_selected = enabled_filaments.empty()
+        || enabled_filaments.count(preset_bundle->filament_presets.front()) > 0;
+    if (!active_filament_selected) {
+        for (const auto& [filament_name, _] : enabled_filaments) {
+            const Preset* preset = preset_bundle->filaments.find_preset(filament_name);
+            if (preset && preset->is_visible && preset->is_compatible) {
+                preset_bundle->filaments.select_preset_by_name(filament_name, true);
+                preset_bundle->filament_presets.front() = preset_bundle->filaments.get_selected_preset_name();
+                break;
+            }
+        }
+    }
 
     // Update the selections from the compatibilty.
     preset_bundle->export_selections(*app_config);
@@ -1056,21 +1132,23 @@ int GuideFrame::LoadProfileData()
                 return 0;
         }
 
-        //sync to web
-        std::string strAll = m_ProfileJson.dump(-1, ' ', false, json::error_handler_t::ignore);
+        wxGetApp().CallAfter([this] {
+            if (!m_destroy) {
+                //sync to appconfig first to populate current selections
+                SaveProfileData();
 
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished, json contents: " << std::endl << strAll;
-        json m_Res           = json::object();
-        m_Res["command"]     = "userguide_profile_load_finish";
-        m_Res["sequence_id"] = "10001";
-        wxString strJS       = wxString::Format("HandleStudio(%s)", m_Res.dump(-1, ' ', true));
-        if (!m_destroy)
-            wxGetApp().CallAfter([this, strJS] { RunScript(strJS); });
+                //sync to web after selections are populated
+                std::string strAll = m_ProfileJson.dump(-1, ' ', false, json::error_handler_t::ignore);
 
-        //sync to appconfig
-        if (!m_destroy)
-            wxGetApp().CallAfter([this] { SaveProfileData(); });
+                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished, json contents: " << std::endl << strAll;
+                json m_Res           = json::object();
+                m_Res["command"]     = "userguide_profile_load_finish";
+                m_Res["sequence_id"] = "10001";
+                wxString strJS       = wxString::Format("HandleStudio(%s)", m_Res.dump(-1, ' ', true));
 
+                RunScript(strJS);
+            }
+        });
     } catch (std::exception& e) {
         // wxLogMessage("GUIDE: load_profile_error  %s ", e.what());
         //  wxMessageBox(e.what(), "", MB_OK);

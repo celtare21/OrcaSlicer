@@ -86,7 +86,7 @@
     "machine_switch_extruder_time": "0",
     "machine_unload_filament_time": "0",
     "max_layer_height": [
-        "0.28"
+        "0.32"
     ],
     "min_layer_height": [
         "0.08"
@@ -128,6 +128,7 @@
     "scan_first_layer": "0",
     "silent_mode": "0",
     "single_extruder_multi_material": "1",
+    "wipe_tower_type": "type1",
     "support_air_filtration": [
         "1"
     ],
