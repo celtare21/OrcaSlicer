@@ -297,6 +297,12 @@ enum OverhangFanThreshold {
     Overhang_threshold_bridge
 };
 
+// Cooling slowdown logic - determines how printer slows down for layer cooling.
+enum CoolingSlowdownLogicType {
+    cslUniformCooling = 0,
+    cslConsistentSurface = 1,
+};
+
 // BBS
 enum BedType {
     btDefault = 0,
@@ -1463,6 +1469,8 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionPoints,             extruder_offset))
     ((ConfigOptionBools,              reduce_fan_stop_start_freq))
     ((ConfigOptionBools,              dont_slow_down_outer_wall))
+    ((ConfigOptionEnumsGeneric,       cooling_slowdown_logic))
+    ((ConfigOptionFloats,             cooling_perimeter_transition_distance))
     ((ConfigOptionFloats,             fan_cooling_layer_time))
     ((ConfigOptionBools,              activate_air_filtration))
     ((ConfigOptionBools,              activate_air_filtration_during_print))
